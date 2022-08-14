@@ -1,4 +1,6 @@
+mod ast;
 mod compiler;
+mod errors;
 mod lexer;
 mod util;
 
@@ -27,7 +29,7 @@ fn main() {
     eprintln!("Invalid number of arguments. Use --help for more info.");
     return;
   }
-  // let args = vec![String::from(""), String::from("samples/2.c")];
+  // let args = vec![String::from(""), String::from("samples/3.c")];
   dbg!(&args);
   match args[1].as_str() {
     "--help" => print_help(),

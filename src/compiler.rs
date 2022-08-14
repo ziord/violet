@@ -1,24 +1,6 @@
+use crate::errors::ViError;
+use crate::lexer::{Lexer, Token, TokenType};
 use crate::util;
-
-fn get_next_int(line: &String, index: usize) -> (i32, usize) {
-  let start = index;
-  let mut end = index;
-  for (idx, chr) in line[start..].char_indices() {
-    if !chr.is_digit(10) {
-      end += idx;
-      break;
-    }
-  }
-  if end == start {
-    end += line.len() - start;
-  }
-  (
-    line[start..end]
-      .parse::<i32>()
-      .expect("substring should be an integer"),
-    end,
-  )
-}
 
 pub fn compile(filename: &str) -> Result<i32, &str> {
   let content = util::read_file(filename);
@@ -26,35 +8,34 @@ pub fn compile(filename: &str) -> Result<i32, &str> {
     return Err("An error occurred while reading file.");
   }
   let content = content.unwrap();
+  let mut lexer = Lexer::new(&content);
   println!("  .global _main");
   println!("_main:");
-  // 2 + 3 - 5
-  let (mut int, mut idx) = get_next_int(&content, 0);
-  println!("  mov ${}, %rax", int);
-  loop {
-    if idx >= content.len() {
-      break;
-    }
-    for (index, chr) in content[idx..].char_indices() {
-      idx += index;
-      match chr {
-        ' ' => continue,
-        '+' => {
-          (int, idx) = get_next_int(&content, idx + 1);
-          println!("  add ${}, %rax", int);
-          break;
-        }
-        '-' => {
-          (int, idx) = get_next_int(&content, idx + 1);
-          println!("  sub ${}, %rax", int);
-          break;
-        }
-        _ => {
-          panic!("Unknown operator!");
-        }
-      };
+  let mut token: Token = lexer.get_token();
+  println!("  mov ${}, %rax", token.to_int());
+  while token.get_type() != TokenType::EOF {
+    token = lexer.get_token();
+    match token.get_type() {
+      TokenType::PLUS => {
+        token = lexer.get_token();
+        println!("  add ${}, %rax", token.to_int());
+      }
+      TokenType::MINUS => {
+        token = lexer.get_token();
+        println!("  sub ${}, %rax", token.to_int());
+      }
+      TokenType::EOF => {
+        break;
+      }
+      TokenType::ERROR => {
+        panic!("Error occurred: {}", token.value())
+      }
+      _ => {
+        panic!("Reached unreachable");
+      }
     }
   }
+  // 2 + 3 - 5
   println!("  ret");
   Ok(0)
 }
