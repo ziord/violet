@@ -20,5 +20,8 @@ assert 0 "1.c"
 assert 42 "2.c"
 assert 21 "3.c"
 assert 47 "4.c"
+assert 47 "5.c"
+assert 15 "6.c"
+assert 4 "7.c"
 
 echo OK

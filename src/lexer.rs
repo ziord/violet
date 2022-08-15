@@ -5,21 +5,35 @@ use std::fmt::Formatter;
 use std::{collections::HashMap, fmt::Display};
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[allow(non_camel_case_types)]
 pub enum TokenType {
   NUM,
   PLUS,
   MINUS,
+  STAR,
+  F_SLASH,
+  L_BRACKET,
+  R_BRACKET,
+  BOF,
   EOF,
   ERROR,
 }
 
 #[derive(Debug)]
+pub enum OpType {
+  PLUS,
+  MINUS,
+  DIV,
+  MUL,
+}
+
+#[derive(Debug, Copy, Clone)]
 pub struct Token<'a> {
   t_type: TokenType,
   line: i32,
   column: i32,
-  error_code: Option<ViError>,
   value: &'a str,
+  pub error_code: Option<ViError>,
 }
 
 #[derive(Debug)]
@@ -39,8 +53,25 @@ impl Display for TokenType {
       TokenType::NUM => write!(f, "TOKEN_NUM"),
       TokenType::PLUS => write!(f, "TOKEN_PLUS"),
       TokenType::MINUS => write!(f, "TOKEN_MINUS"),
+      TokenType::BOF => write!(f, "TOKEN_BOF"),
       TokenType::EOF => write!(f, "TOKEN_EOF"),
       TokenType::ERROR => write!(f, "TOKEN_ERROR"),
+      TokenType::STAR => write!(f, "TOKEN_STAR"),
+      TokenType::F_SLASH => write!(f, "TOKEN_F_SLASH"),
+      TokenType::L_BRACKET => write!(f, "TOKEN_LEFT_BRACKET"),
+      TokenType::R_BRACKET => write!(f, "TOKEN_RIGHT_BRACKET"),
+    }
+  }
+}
+
+impl TokenType {
+  pub(crate) fn to_optype(&self) -> OpType {
+    match self {
+      TokenType::MINUS => OpType::MINUS,
+      TokenType::PLUS => OpType::PLUS,
+      TokenType::STAR => OpType::MUL,
+      TokenType::F_SLASH => OpType::DIV,
+      _ => panic!("{} is not an operator", self.to_string())
     }
   }
 }
@@ -75,6 +106,14 @@ impl<'a> Token<'a> {
   pub fn value(&self) -> &'a str {
     self.value
   }
+
+  pub fn equal(&self, t_type: TokenType) -> bool {
+    self.t_type == t_type
+  }
+
+  pub fn is_error_token(&self) -> bool {
+    self.error_code.is_some()
+  }
 }
 
 impl<'a> Display for Token<'a> {
@@ -84,6 +123,12 @@ impl<'a> Display for Token<'a> {
       "Token(value={}, type={}, column={}, line={})",
       self.value, self.t_type, self.column, self.line
     )
+  }
+}
+
+impl<'a> Default for Token<'a> {
+  fn default() -> Self {
+    Token::new("", TokenType::BOF, 1, 0, None)
   }
 }
 
@@ -192,6 +237,10 @@ impl<'a, 'b> Lexer<'a, 'b> {
     match ch {
       '+' => self.create_token(TokenType::PLUS),
       '-' => self.create_token(TokenType::MINUS),
+      '*' => self.create_token(TokenType::STAR),
+      '/' => self.create_token(TokenType::F_SLASH),
+      '(' => self.create_token(TokenType::L_BRACKET),
+      ')' => self.create_token(TokenType::R_BRACKET),
       _ => self.error_token(ViError::EL001),
     }
   }

@@ -2,6 +2,7 @@ mod ast;
 mod compiler;
 mod errors;
 mod lexer;
+mod parser;
 mod util;
 
 use std::env;
@@ -15,7 +16,8 @@ To compile your C file(s), do: violet file.c"
 }
 
 pub(crate) fn compile_file(filename: &str) {
-  let res = compiler::compile(filename);
+  let mut cmp = compiler::Compiler::new(filename);
+  let res = cmp.compile();
   if let Ok(_v) = res {
     // println!("Exited with code {v}"); // todo
   } else {

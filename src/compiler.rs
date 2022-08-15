@@ -1,41 +1,94 @@
-use crate::errors::ViError;
-use crate::lexer::{Lexer, Token, TokenType};
+use crate::ast::AstNode;
+use crate::lexer::OpType;
+use crate::parser::Parser;
 use crate::util;
 
-pub fn compile(filename: &str) -> Result<i32, &str> {
-  let content = util::read_file(filename);
-  if let Err(_) = content {
-    return Err("An error occurred while reading file.");
+#[derive(Debug)]
+pub struct Compiler<'a> {
+  filename: &'a str,
+  depth: i32,
+}
+
+macro_rules! unbind {
+  ($tt: tt, $nd: ident) => {
+    if let AstNode::$tt(v_) = $nd {
+      v_
+    } else {
+      panic!("Couldn't unbind AstNode::{}", stringify!($tt));
+    }
+  };
+}
+
+impl<'a> Compiler<'a> {
+  pub fn new(filename: &'a str) -> Self {
+    Self { filename, depth: 0 }
   }
-  let content = content.unwrap();
-  let mut lexer = Lexer::new(&content);
-  println!("  .global _main");
-  println!("_main:");
-  let mut token: Token = lexer.get_token();
-  println!("  mov ${}, %rax", token.to_int());
-  while token.get_type() != TokenType::EOF {
-    token = lexer.get_token();
-    match token.get_type() {
-      TokenType::PLUS => {
-        token = lexer.get_token();
-        println!("  add ${}, %rax", token.to_int());
+
+  pub fn setup(&self) -> Result<AstNode, &'a str> {
+    let content = util::read_file(self.filename);
+    if content.is_ok() {
+      let content = content.unwrap();
+      let mut parser = Parser::new(&content);
+      return Ok(parser.parse());
+    }
+    Err("An error occurred while reading file.")
+  }
+
+  pub fn push_reg(&mut self) {
+    println!("  push %rax");
+    self.depth += 1;
+  }
+
+  pub fn pop_reg(&mut self, reg: &str) {
+    println!("  pop %{}", reg);
+    self.depth -= 1;
+  }
+
+  pub fn c_number(&mut self, node: &AstNode) {
+    let node = unbind!(NumberNode, node);
+    println!("  mov ${}, %rax", node.value);
+  }
+
+  pub fn c_binary(&mut self, node: &AstNode) {
+    let node = unbind!(BinaryNode, node);
+    self.c_(&node.right);
+    self.push_reg();
+    self.c_(&node.left); // places left into %rax
+    self.pop_reg("rdi"); // pop right into %rdi
+    match node.op {
+      OpType::MINUS => {
+        println!("  sub %rdi, %rax");
       }
-      TokenType::MINUS => {
-        token = lexer.get_token();
-        println!("  sub ${}, %rax", token.to_int());
+      OpType::PLUS => {
+        println!("  add %rdi, %rax");
       }
-      TokenType::EOF => {
-        break;
+      OpType::DIV => {
+        println!("  cqo"); // %rdx -> %rdx:%rax
+        println!("  idiv %rdi");
       }
-      TokenType::ERROR => {
-        panic!("Error occurred: {}", token.value())
-      }
-      _ => {
-        panic!("Reached unreachable");
+      OpType::MUL => {
+        println!("  imul %rdi, %rax");
       }
     }
   }
-  // 2 + 3 - 5
-  println!("  ret");
-  Ok(0)
+
+  pub fn c_(&mut self, node: &AstNode) {
+    match node {
+      AstNode::NumberNode(_) => self.c_number(node),
+      AstNode::BinaryNode(_) => self.c_binary(node),
+    }
+  }
+
+  pub fn compile(&mut self) -> Result<i32, &'a str> {
+    let res = self.setup();
+    if res.is_err() {
+      return Err(res.unwrap_err());
+    }
+    let root = res.unwrap();
+    println!("  .global _main");
+    println!("_main:");
+    self.c_(&root);
+    println!("  ret");
+    Ok(0)
+  }
 }

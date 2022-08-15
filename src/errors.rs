@@ -5,9 +5,9 @@ pub enum ViError {
 
 #[derive(Debug)]
 pub struct ErrorInfo<'a> {
-  error_code: ViError,
-  error_msg: &'a str,
-  help_msg: &'a str,
+  pub error_code: ViError,
+  pub error_msg: &'a str,
+  pub help_msg: &'a str,
 }
 
 impl<'a> ErrorInfo<'a> {
@@ -21,7 +21,7 @@ impl<'a> ErrorInfo<'a> {
 }
 macro_rules! info {
   ($code: expr, $msg: tt, $help: tt) => {
-    ErrorInfo::new($code, $msg, $help)
+    ErrorInfo::new(*$code, $msg, $help)
   };
 }
 
@@ -29,7 +29,7 @@ impl ViError {
   pub fn to_info(&self) -> ErrorInfo {
     match self {
       ViError::EL001 => info!(
-        *self,
+        self,
         "Unrecognized token", "The token found at this context is illegal/unknown."
       ),
     }
