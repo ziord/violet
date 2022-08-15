@@ -51,9 +51,9 @@ impl<'a> Compiler<'a> {
 
   pub fn c_binary(&mut self, node: &AstNode) {
     let node = unbind!(BinaryNode, node);
-    self.c_(&node.right);
+    self.c_(&node.right_node);
     self.push_reg();
-    self.c_(&node.left); // places left into %rax
+    self.c_(&node.left_node); // places left into %rax
     self.pop_reg("rdi"); // pop right into %rdi
     match node.op {
       OpType::MINUS => {
@@ -72,10 +72,25 @@ impl<'a> Compiler<'a> {
     }
   }
 
+  pub fn c_unary(&mut self, node: &AstNode) {
+    let node = unbind!(UnaryNode, node);
+    match node.op {
+      OpType::PLUS => {
+        self.c_(&*node.node);
+      }
+      OpType::MINUS => {
+        self.c_(&*node.node);
+        println!("  neg %rax");
+      }
+      _ => unreachable!(),
+    }
+  }
+
   pub fn c_(&mut self, node: &AstNode) {
     match node {
       AstNode::NumberNode(_) => self.c_number(node),
       AstNode::BinaryNode(_) => self.c_binary(node),
+      AstNode::UnaryNode(_) => self.c_unary(node),
     }
   }
 

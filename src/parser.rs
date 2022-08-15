@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, BinaryNode, NumberNode};
+use crate::ast::{AstNode, BinaryNode, NumberNode, UnaryNode};
 use crate::lexer::{Lexer, Token, TokenType};
 
 #[derive(Debug)]
@@ -61,18 +61,34 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
   }
 
+  fn unary(&mut self) -> AstNode {
+    // unary = ("+" | "-") unary | primary
+    if self.current_token.equal(TokenType::PLUS)
+      || self.current_token.equal(TokenType::MINUS)
+    {
+      self.advance();
+      let op = self.previous_token.t_type().to_optype();
+      let node = self.unary();
+      return AstNode::UnaryNode(UnaryNode {
+        node: Box::new(node),
+        op,
+      });
+    }
+    self.primary()
+  }
+
   fn term(&mut self) -> AstNode {
-    // term = primary ("*" primary | "/" primary)*
-    let mut left = self.primary();
+    // term = unary ("*" primary | "/" unary)*
+    let mut left = self.unary();
     while self.current_token.equal(TokenType::STAR)
       || self.current_token.equal(TokenType::F_SLASH)
     {
-      let op = self.current_token.get_type().to_optype();
+      let op = self.current_token.t_type().to_optype();
       self.advance();
-      let right = self.primary();
+      let right = self.unary();
       left = AstNode::BinaryNode(BinaryNode {
-        left: Box::new(left),
-        right: Box::new(right),
+        left_node: Box::new(left),
+        right_node: Box::new(right),
         op,
       });
     }
@@ -85,12 +101,12 @@ impl<'a, 'b> Parser<'a, 'b> {
     while self.current_token.equal(TokenType::PLUS)
       || self.current_token.equal(TokenType::MINUS)
     {
-      let op = self.current_token.get_type().to_optype();
+      let op = self.current_token.t_type().to_optype();
       self.advance();
       let right = self.term();
       left = AstNode::BinaryNode(BinaryNode {
-        left: Box::new(left),
-        right: Box::new(right),
+        left_node: Box::new(left),
+        right_node: Box::new(right),
         op,
       });
     }

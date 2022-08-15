@@ -99,7 +99,7 @@ impl<'a> Token<'a> {
       _ => 0,
     }
   }
-  pub fn get_type(&self) -> TokenType {
+  pub fn t_type(&self) -> TokenType {
     self.t_type
   }
 

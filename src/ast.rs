@@ -7,8 +7,14 @@ pub struct NumberNode {
 
 #[derive(Debug)]
 pub struct BinaryNode {
-  pub left: Box<AstNode>,
-  pub right: Box<AstNode>,
+  pub left_node: Box<AstNode>,
+  pub right_node: Box<AstNode>,
+  pub op: OpType,
+}
+
+#[derive(Debug)]
+pub struct UnaryNode {
+  pub node: Box<AstNode>,
   pub op: OpType,
 }
 
@@ -16,5 +22,5 @@ pub struct BinaryNode {
 pub enum AstNode {
   NumberNode(NumberNode),
   BinaryNode(BinaryNode),
+  UnaryNode(UnaryNode),
 }
-
