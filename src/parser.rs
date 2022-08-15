@@ -1,4 +1,5 @@
-use crate::ast::{AstNode, BinaryNode, NumberNode, UnaryNode};
+use crate::ast::{AstNode, BinaryNode, ExprStmtNode, NumberNode, StmtList, UnaryNode};
+use crate::errors::{ErrorInfo, ViError};
 use crate::lexer::{Lexer, Token, TokenType};
 
 #[derive(Debug)]
@@ -17,12 +18,14 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
   }
 
-  fn error(&self) {
+  fn error(&self, code: Option<ErrorInfo>) {
     // todo
     eprintln!(
       "Error at {} - {}",
       self.current_token,
-      self.current_token.error_code.unwrap().to_info().error_msg
+      code
+        .unwrap_or(self.current_token.error_code.unwrap().to_info())
+        .error_msg
     );
   }
 
@@ -30,7 +33,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     self.previous_token = self.current_token;
     self.current_token = self.lexer.get_token();
     if self.current_token.is_error_token() {
-      self.error();
+      self.error(None);
     }
   }
 
@@ -38,7 +41,14 @@ impl<'a, 'b> Parser<'a, 'b> {
     if self.current_token.equal(t_type) {
       self.advance();
     } else {
-      self.error();
+      let help_msg = format!(
+        "Expected {}, found {}",
+        t_type,
+        self.current_token.t_type()
+      );
+      let mut info = ViError::EP001.to_info();
+      info.help_msg = help_msg.as_str();
+      self.error(Some(info));
     }
   }
 
@@ -51,10 +61,10 @@ impl<'a, 'b> Parser<'a, 'b> {
 
   fn primary(&mut self) -> AstNode {
     // primary = "(" expr ")" | num
-    if self.current_token.equal(TokenType::L_BRACKET) {
-      self.consume(TokenType::L_BRACKET);
+    if self.current_token.equal(TokenType::LEFT_BRACKET) {
+      self.consume(TokenType::LEFT_BRACKET);
       let node = self.expr();
-      self.consume(TokenType::R_BRACKET);
+      self.consume(TokenType::RIGHT_BRACKET);
       return node;
     } else {
       self.num()
@@ -81,7 +91,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     // term = unary ("*" primary | "/" unary)*
     let mut left = self.unary();
     while self.current_token.equal(TokenType::STAR)
-      || self.current_token.equal(TokenType::F_SLASH)
+      || self.current_token.equal(TokenType::FWD_SLASH)
     {
       let op = self.current_token.t_type().to_optype();
       self.advance();
@@ -118,10 +128,10 @@ impl<'a, 'b> Parser<'a, 'b> {
     let mut left = self.additive();
     loop {
       match self.current_token.t_type() {
-        TokenType::L_THAN
-        | TokenType::L_EQ
-        | TokenType::G_THAN
-        | TokenType::G_EQ => {
+        TokenType::LESS_THAN
+        | TokenType::LESS_EQUAL
+        | TokenType::GRT_THAN
+        | TokenType::GRT_EQUAL => {
           self.advance();
           let op = self.previous_token.t_type().to_optype();
           let right = self.relational();
@@ -140,8 +150,8 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn equality(&mut self) -> AstNode {
     // equality = relational ("==" relational | "!=" relational)*
     let mut left = self.relational();
-    while self.current_token.equal(TokenType::EQ_EQ)
-      || self.current_token.equal(TokenType::N_EQ)
+    while self.current_token.equal(TokenType::EQUAL_EQUAL)
+      || self.current_token.equal(TokenType::NOT_EQUAL)
     {
       self.advance();
       let op = self.previous_token.t_type().to_optype();
@@ -160,10 +170,27 @@ impl<'a, 'b> Parser<'a, 'b> {
     self.equality()
   }
 
+  fn expr_stmt(&mut self) -> AstNode {
+    // expr-stmt = expr ";"
+    let node = self.expr();
+    self.consume(TokenType::SEMI_COLON);
+    AstNode::ExprStmtNode(ExprStmtNode {
+      node: Box::new(node),
+    })
+  }
+
+  fn stmt(&mut self) -> AstNode {
+    // stmt = expr-stmt
+    self.expr_stmt()
+  }
+
   pub fn parse(&mut self) -> AstNode {
     self.advance();
-    let node: AstNode = self.expr();
+    let mut list = StmtList { stmts: vec![]};
+    while !self.current_token.equal(TokenType::EOF) {
+      list.stmts.push(self.stmt());
+    }
     self.consume(TokenType::EOF);
-    return node;
+    return AstNode::StmtList(list);
   }
 }

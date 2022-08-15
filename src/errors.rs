@@ -1,6 +1,7 @@
 #[derive(Debug, Copy, Clone)]
 pub enum ViError {
   EL001, // unrecognized token
+  EP001, // mismatch token
 }
 
 #[derive(Debug)]
@@ -30,8 +31,10 @@ impl ViError {
     match self {
       ViError::EL001 => info!(
         self,
-        "Unrecognized token", "The token found at this context is illegal/unknown."
+        "Unrecognized token",
+        "The token found at this context is illegal/unknown."
       ),
+      ViError::EP001 => info!(self, "Token mismatch", ""),
     }
   }
 }

@@ -8,21 +8,22 @@ use std::{collections::HashMap, fmt::Display};
 #[allow(non_camel_case_types)]
 pub enum TokenType {
   NUM,
-  PLUS,      // +
-  MINUS,     // -
-  STAR,      // *
-  F_SLASH,   // /
-  L_BRACKET, // (
-  R_BRACKET, // )
-  L_THAN,    // <
-  G_THAN,    // >
-  EQ_EQ,     // ==
-  N_EQ,      // !=
-  L_EQ,      // <=
-  G_EQ,      // >=
-  EQ,        // =
-  BOF,       // |-
-  EOF,       // -|
+  PLUS,          // +
+  MINUS,         // -
+  STAR,          // *
+  FWD_SLASH,     // /
+  LEFT_BRACKET,  // (
+  RIGHT_BRACKET, // )
+  LESS_THAN,     // <
+  GRT_THAN,      // >
+  EQUAL_EQUAL,   // ==
+  NOT_EQUAL,     // !=
+  LESS_EQUAL,    // <=
+  GRT_EQUAL,     // >=
+  EQUAL,         // =
+  SEMI_COLON,    // ;
+  BOF,           // |-
+  EOF,           // -|
   ERROR,
 }
 
@@ -71,16 +72,17 @@ impl Display for TokenType {
       TokenType::EOF => write!(f, "TOK<EOF>"),
       TokenType::ERROR => write!(f, "TOK<ERROR>"),
       TokenType::STAR => write!(f, "TOK<STAR>"),
-      TokenType::F_SLASH => write!(f, "TOK<F-SLASH>"),
-      TokenType::L_BRACKET => write!(f, "TOK<LEFT-BRACKET>"),
-      TokenType::R_BRACKET => write!(f, "TOK<RIGHT-BRACKET>"),
-      TokenType::L_THAN => write!(f, "TOK<LESS-THAN>"),
-      TokenType::G_THAN => write!(f, "TOK<GREATER-THAN>"),
-      TokenType::EQ_EQ => write!(f, "TOK<EQUAL-EQUAL>"),
-      TokenType::L_EQ => write!(f, "TOK<LESS-EQUAL>"),
-      TokenType::G_EQ => write!(f, "TOK<GREATER-EQUAL>"),
-      TokenType::EQ => write!(f, "TOK<EQUAL>"),
-      TokenType::N_EQ => write!(f, "TOK<NOT-EQUAL>"),
+      TokenType::FWD_SLASH => write!(f, "TOK<FWD-SLASH>"),
+      TokenType::LEFT_BRACKET => write!(f, "TOK<LEFT-BRACKET>"),
+      TokenType::RIGHT_BRACKET => write!(f, "TOK<RIGHT-BRACKET>"),
+      TokenType::LESS_THAN => write!(f, "TOK<LESS-THAN>"),
+      TokenType::GRT_THAN => write!(f, "TOK<GREATER-THAN>"),
+      TokenType::EQUAL_EQUAL => write!(f, "TOK<EQUAL-EQUAL>"),
+      TokenType::LESS_EQUAL => write!(f, "TOK<LESS-EQUAL>"),
+      TokenType::GRT_EQUAL => write!(f, "TOK<GREATER-EQUAL>"),
+      TokenType::EQUAL => write!(f, "TOK<EQUAL>"),
+      TokenType::NOT_EQUAL => write!(f, "TOK<NOT-EQUAL>"),
+      TokenType::SEMI_COLON => write!(f, "TOK<SEMI-COLON>"),
     }
   }
 }
@@ -109,13 +111,13 @@ impl TokenType {
       TokenType::MINUS => OpType::MINUS,
       TokenType::PLUS => OpType::PLUS,
       TokenType::STAR => OpType::MUL,
-      TokenType::F_SLASH => OpType::DIV,
-      TokenType::EQ_EQ => OpType::EQQ,
-      TokenType::L_EQ => OpType::LEQ,
-      TokenType::G_EQ => OpType::GEQ,
-      TokenType::N_EQ => OpType::NEQ,
-      TokenType::G_THAN => OpType::GT,
-      TokenType::L_THAN => OpType::LT,
+      TokenType::FWD_SLASH => OpType::DIV,
+      TokenType::EQUAL_EQUAL => OpType::EQQ,
+      TokenType::LESS_EQUAL => OpType::LEQ,
+      TokenType::GRT_EQUAL => OpType::GEQ,
+      TokenType::NOT_EQUAL => OpType::NEQ,
+      TokenType::GRT_THAN => OpType::GT,
+      TokenType::LESS_THAN => OpType::LT,
       _ => panic!("{} is not an operator", self.to_string()),
     }
   }
@@ -283,37 +285,38 @@ impl<'a, 'b> Lexer<'a, 'b> {
       '+' => self.create_token(TokenType::PLUS),
       '-' => self.create_token(TokenType::MINUS),
       '*' => self.create_token(TokenType::STAR),
-      '/' => self.create_token(TokenType::F_SLASH),
-      '(' => self.create_token(TokenType::L_BRACKET),
-      ')' => self.create_token(TokenType::R_BRACKET),
+      '/' => self.create_token(TokenType::FWD_SLASH),
+      '(' => self.create_token(TokenType::LEFT_BRACKET),
+      ')' => self.create_token(TokenType::RIGHT_BRACKET),
+      ';' => self.create_token(TokenType::SEMI_COLON),
       '<' => {
         if self.peek(None) == '=' {
           self.advance();
-          self.create_token(TokenType::L_EQ)
+          self.create_token(TokenType::LESS_EQUAL)
         } else {
-          self.create_token(TokenType::L_THAN)
+          self.create_token(TokenType::LESS_THAN)
         }
       }
       '>' => {
         if self.peek(None) == '=' {
           self.advance();
-          self.create_token(TokenType::G_EQ)
+          self.create_token(TokenType::GRT_EQUAL)
         } else {
-          self.create_token(TokenType::G_THAN)
+          self.create_token(TokenType::GRT_THAN)
         }
       }
       '=' => {
         if self.peek(None) == '=' {
           self.advance();
-          self.create_token(TokenType::EQ_EQ)
+          self.create_token(TokenType::EQUAL_EQUAL)
         } else {
-          self.create_token(TokenType::EQ)
+          self.create_token(TokenType::EQUAL)
         }
       }
       '!' => {
         if self.peek(None) == '=' {
           self.advance();
-          self.create_token(TokenType::N_EQ)
+          self.create_token(TokenType::NOT_EQUAL)
         } else {
           self.error_token(ViError::EL001)
         }

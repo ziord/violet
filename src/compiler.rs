@@ -117,11 +117,25 @@ impl<'a> Compiler<'a> {
     }
   }
 
+  pub fn c_expr_stmt(&mut self, node: &AstNode) {
+    self.c_(&unbind!(ExprStmtNode, node).node);
+  }
+
+  pub fn c_stmt_list(&mut self, node: &AstNode) {
+    let stmt_list = unbind!(StmtList, node);
+    for stmt in &stmt_list.stmts {
+      self.c_(stmt);
+      assert_eq!(self.depth, 0, "Expected depth to be zero");
+    }
+  }
+
   pub fn c_(&mut self, node: &AstNode) {
     match node {
       AstNode::NumberNode(_) => self.c_number(node),
       AstNode::BinaryNode(_) => self.c_binary(node),
       AstNode::UnaryNode(_) => self.c_unary(node),
+      AstNode::ExprStmtNode(_) => self.c_expr_stmt(node),
+      AstNode::StmtList(_) => self.c_stmt_list(node),
     }
   }
 
@@ -135,7 +149,6 @@ impl<'a> Compiler<'a> {
     println!("_main:");
     self.c_(&root);
     println!("  ret");
-    assert_eq!(self.depth, 0, "Expected depth to be zero");
     Ok(0)
   }
 }
