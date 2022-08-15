@@ -27,4 +27,22 @@ assert 10 "8.c"
 assert 10 "9.c"
 assert 10 "10.c"
 
+assert 0 '11.c'
+assert 1 '12.c'
+assert 1 '13.c'
+assert 0 '14.c'
+
+assert 1 '15.c'
+assert 0 '16.c'
+assert 0 '17.c'
+assert 1 '18.c'
+assert 1 '19.c'
+assert 0 '20.c'
+
+assert 1 '21.c'
+assert 0 '22.c'
+assert 0 '23.c'
+assert 1 '24.c'
+assert 1 '25.c'
+assert 0 '26.c'
 echo OK

@@ -8,23 +8,37 @@ use std::{collections::HashMap, fmt::Display};
 #[allow(non_camel_case_types)]
 pub enum TokenType {
   NUM,
-  PLUS,
-  MINUS,
-  STAR,
-  F_SLASH,
-  L_BRACKET,
-  R_BRACKET,
-  BOF,
-  EOF,
+  PLUS,      // +
+  MINUS,     // -
+  STAR,      // *
+  F_SLASH,   // /
+  L_BRACKET, // (
+  R_BRACKET, // )
+  L_THAN,    // <
+  G_THAN,    // >
+  EQ_EQ,     // ==
+  N_EQ,      // !=
+  L_EQ,      // <=
+  G_EQ,      // >=
+  EQ,        // =
+  BOF,       // |-
+  EOF,       // -|
   ERROR,
 }
 
 #[derive(Debug)]
 pub enum OpType {
-  PLUS,
-  MINUS,
-  DIV,
-  MUL,
+  PLUS,  // +
+  MINUS, // -
+  DIV,   // /
+  MUL,   // *
+  LEQ,   // <=
+  GEQ,   // >=
+  LT,    // <
+  GT,    // >
+  EQQ,   // ==
+  NEQ,   // !=
+  EQ,    // =
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -50,16 +64,41 @@ pub struct Lexer<'a, 'b> {
 impl Display for TokenType {
   fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
     match self {
-      TokenType::NUM => write!(f, "TOKEN_NUM"),
-      TokenType::PLUS => write!(f, "TOKEN_PLUS"),
-      TokenType::MINUS => write!(f, "TOKEN_MINUS"),
-      TokenType::BOF => write!(f, "TOKEN_BOF"),
-      TokenType::EOF => write!(f, "TOKEN_EOF"),
-      TokenType::ERROR => write!(f, "TOKEN_ERROR"),
-      TokenType::STAR => write!(f, "TOKEN_STAR"),
-      TokenType::F_SLASH => write!(f, "TOKEN_F_SLASH"),
-      TokenType::L_BRACKET => write!(f, "TOKEN_LEFT_BRACKET"),
-      TokenType::R_BRACKET => write!(f, "TOKEN_RIGHT_BRACKET"),
+      TokenType::NUM => write!(f, "TOK<NUM>"),
+      TokenType::PLUS => write!(f, "TOK<PLUS>"),
+      TokenType::MINUS => write!(f, "TOK<MINUS>"),
+      TokenType::BOF => write!(f, "TOK<BOF>"),
+      TokenType::EOF => write!(f, "TOK<EOF>"),
+      TokenType::ERROR => write!(f, "TOK<ERROR>"),
+      TokenType::STAR => write!(f, "TOK<STAR>"),
+      TokenType::F_SLASH => write!(f, "TOK<F-SLASH>"),
+      TokenType::L_BRACKET => write!(f, "TOK<LEFT-BRACKET>"),
+      TokenType::R_BRACKET => write!(f, "TOK<RIGHT-BRACKET>"),
+      TokenType::L_THAN => write!(f, "TOK<LESS-THAN>"),
+      TokenType::G_THAN => write!(f, "TOK<GREATER-THAN>"),
+      TokenType::EQ_EQ => write!(f, "TOK<EQUAL-EQUAL>"),
+      TokenType::L_EQ => write!(f, "TOK<LESS-EQUAL>"),
+      TokenType::G_EQ => write!(f, "TOK<GREATER-EQUAL>"),
+      TokenType::EQ => write!(f, "TOK<EQUAL>"),
+      TokenType::N_EQ => write!(f, "TOK<NOT-EQUAL>"),
+    }
+  }
+}
+
+impl Display for OpType {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    match self {
+      OpType::PLUS => write!(f, "+"),
+      OpType::MINUS => write!(f, "-"),
+      OpType::DIV => write!(f, "/"),
+      OpType::MUL => write!(f, "*"),
+      OpType::LEQ => write!(f, "<="),
+      OpType::GEQ => write!(f, ">="),
+      OpType::LT => write!(f, "<"),
+      OpType::GT => write!(f, ">="),
+      OpType::EQQ => write!(f, "=="),
+      OpType::NEQ => write!(f, "!="),
+      OpType::EQ => write!(f, "="),
     }
   }
 }
@@ -71,7 +110,13 @@ impl TokenType {
       TokenType::PLUS => OpType::PLUS,
       TokenType::STAR => OpType::MUL,
       TokenType::F_SLASH => OpType::DIV,
-      _ => panic!("{} is not an operator", self.to_string())
+      TokenType::EQ_EQ => OpType::EQQ,
+      TokenType::L_EQ => OpType::LEQ,
+      TokenType::G_EQ => OpType::GEQ,
+      TokenType::N_EQ => OpType::NEQ,
+      TokenType::G_THAN => OpType::GT,
+      TokenType::L_THAN => OpType::LT,
+      _ => panic!("{} is not an operator", self.to_string()),
     }
   }
 }
@@ -241,6 +286,38 @@ impl<'a, 'b> Lexer<'a, 'b> {
       '/' => self.create_token(TokenType::F_SLASH),
       '(' => self.create_token(TokenType::L_BRACKET),
       ')' => self.create_token(TokenType::R_BRACKET),
+      '<' => {
+        if self.peek(None) == '=' {
+          self.advance();
+          self.create_token(TokenType::L_EQ)
+        } else {
+          self.create_token(TokenType::L_THAN)
+        }
+      }
+      '>' => {
+        if self.peek(None) == '=' {
+          self.advance();
+          self.create_token(TokenType::G_EQ)
+        } else {
+          self.create_token(TokenType::G_THAN)
+        }
+      }
+      '=' => {
+        if self.peek(None) == '=' {
+          self.advance();
+          self.create_token(TokenType::EQ_EQ)
+        } else {
+          self.create_token(TokenType::EQ)
+        }
+      }
+      '!' => {
+        if self.peek(None) == '=' {
+          self.advance();
+          self.create_token(TokenType::N_EQ)
+        } else {
+          self.error_token(ViError::EL001)
+        }
+      }
       _ => self.error_token(ViError::EL001),
     }
   }

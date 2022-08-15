@@ -69,6 +69,37 @@ impl<'a> Compiler<'a> {
       OpType::MUL => {
         println!("  imul %rdi, %rax");
       }
+      OpType::EQ => {
+        todo!()
+      }
+      // relational ops
+      _ => {
+        println!("  cmp %rdi, %rax");
+        match node.op {
+          OpType::LEQ => {
+            println!("  setle %al");
+          }
+          OpType::GEQ => {
+            println!("  setge %al");
+          }
+          OpType::LT => {
+            println!("  setl %al");
+          }
+          OpType::GT => {
+            println!("  setg %al");
+          }
+          OpType::EQQ => {
+            println!("  sete %al");
+          }
+          OpType::NEQ => {
+            println!("  setne %al");
+          }
+          _ => {
+            panic!("Unrecognized operator '{}'", node.op);
+          }
+        }
+        println!("  movzb %al, %rax");
+      }
     }
   }
 
@@ -104,6 +135,7 @@ impl<'a> Compiler<'a> {
     println!("_main:");
     self.c_(&root);
     println!("  ret");
+    assert_eq!(self.depth, 0, "Expected depth to be zero");
     Ok(0)
   }
 }

@@ -95,8 +95,8 @@ impl<'a, 'b> Parser<'a, 'b> {
     left
   }
 
-  fn expr(&mut self) -> AstNode {
-    // expr = term ("+" term | "-" term)*
+  fn additive(&mut self) -> AstNode {
+    // additive = term ("+" term | "-" term)*
     let mut left = self.term();
     while self.current_token.equal(TokenType::PLUS)
       || self.current_token.equal(TokenType::MINUS)
@@ -113,8 +113,57 @@ impl<'a, 'b> Parser<'a, 'b> {
     left
   }
 
+  fn relational(&mut self) -> AstNode {
+    // relational = additive ("<" additive | "<=" additive | ">" additive | ">=" additive)*
+    let mut left = self.additive();
+    loop {
+      match self.current_token.t_type() {
+        TokenType::L_THAN
+        | TokenType::L_EQ
+        | TokenType::G_THAN
+        | TokenType::G_EQ => {
+          self.advance();
+          let op = self.previous_token.t_type().to_optype();
+          let right = self.relational();
+          left = AstNode::BinaryNode(BinaryNode {
+            left_node: Box::new(left),
+            right_node: Box::new(right),
+            op,
+          });
+        }
+        _ => break,
+      }
+    }
+    left
+  }
+
+  fn equality(&mut self) -> AstNode {
+    // equality = relational ("==" relational | "!=" relational)*
+    let mut left = self.relational();
+    while self.current_token.equal(TokenType::EQ_EQ)
+      || self.current_token.equal(TokenType::N_EQ)
+    {
+      self.advance();
+      let op = self.previous_token.t_type().to_optype();
+      let right = self.relational();
+      left = AstNode::BinaryNode(BinaryNode {
+        left_node: Box::new(left),
+        right_node: Box::new(right),
+        op,
+      });
+    }
+    left
+  }
+
+  fn expr(&mut self) -> AstNode {
+    // expr = equality
+    self.equality()
+  }
+
   pub fn parse(&mut self) -> AstNode {
     self.advance();
-    self.expr()
+    let node: AstNode = self.expr();
+    self.consume(TokenType::EOF);
+    return node;
   }
 }
