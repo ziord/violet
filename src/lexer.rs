@@ -22,6 +22,7 @@ pub enum TokenType {
   GRT_EQUAL,     // >=
   EQUAL,         // =
   SEMI_COLON,    // ;
+  IDENT,         // id
   BOF,           // |-
   EOF,           // -|
   ERROR,
@@ -83,6 +84,7 @@ impl Display for TokenType {
       TokenType::EQUAL => write!(f, "TOK<EQUAL>"),
       TokenType::NOT_EQUAL => write!(f, "TOK<NOT-EQUAL>"),
       TokenType::SEMI_COLON => write!(f, "TOK<SEMI-COLON>"),
+      TokenType::IDENT => write!(f, "TOK<IDENTIFIER>"),
     }
   }
 }
@@ -118,6 +120,7 @@ impl TokenType {
       TokenType::NOT_EQUAL => OpType::NEQ,
       TokenType::GRT_THAN => OpType::GT,
       TokenType::LESS_THAN => OpType::LT,
+      TokenType::EQUAL => OpType::EQ,
       _ => panic!("{} is not an operator", self.to_string()),
     }
   }
@@ -197,7 +200,17 @@ impl<'a, 'b> Lexer<'a, 'b> {
   }
 
   fn is_alpha(&self, ch: char) -> bool {
-    ch.is_alphabetic() || ch == '_'
+    let ch_u8 = ch as u8;
+    ch_u8 >= 'A' as u8 && ch_u8 <= 'Z' as u8
+      || ch_u8 >= 'a' as u8 && ch_u8 <= 'z' as u8
+      || ch == '_'
+  }
+
+  fn ident_type(&self, ident: &str) -> TokenType {
+    match ident {
+      // "break" | "true" | "false" => (true, TokenType::EOF), // todo
+      _ => TokenType::IDENT,
+    }
   }
 
   fn at_end(&self) -> bool {
@@ -269,6 +282,15 @@ impl<'a, 'b> Lexer<'a, 'b> {
     self.create_token(TokenType::NUM)
   }
 
+  fn lex_ident(&mut self) -> Token<'a> {
+    while self.is_alpha(self.peek(None)) || self.is_digit(self.peek(None)) {
+      self.advance();
+    }
+    let mut tok = self.create_token(TokenType::IDENT);
+    tok.t_type = self.ident_type(tok.value);
+    return tok;
+  }
+
   pub fn get_token(&mut self) -> Token<'a> {
     self.skip_whitespace();
     if self.at_end() {
@@ -280,6 +302,8 @@ impl<'a, 'b> Lexer<'a, 'b> {
     let ch = self.advance();
     if self.is_digit(ch) {
       return self.lex_number();
+    } else if self.is_alpha(ch) {
+      return self.lex_ident();
     }
     match ch {
       '+' => self.create_token(TokenType::PLUS),

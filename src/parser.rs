@@ -1,12 +1,24 @@
-use crate::ast::{AstNode, BinaryNode, ExprStmtNode, NumberNode, StmtList, UnaryNode};
+use crate::ast::{
+  AssignNode, AstNode, BinaryNode, ExprStmtNode, FunctionNode, NumberNode,
+  StmtListNode, UnaryNode, VarNode,
+};
 use crate::errors::{ErrorInfo, ViError};
 use crate::lexer::{Lexer, Token, TokenType};
+use std::cell::Cell;
+use std::collections::BTreeMap;
+
+#[derive(Debug)]
+struct FnState {
+  // fn_name: String, // todo
+  locals: BTreeMap<String, i32>,
+}
 
 #[derive(Debug)]
 pub(crate) struct Parser<'a, 'b> {
   lexer: Lexer<'a, 'b>,
   current_token: Token<'a>,
   previous_token: Token<'a>,
+  current_state: FnState,
 }
 
 impl<'a, 'b> Parser<'a, 'b> {
@@ -15,6 +27,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       lexer: Lexer::new(src),
       current_token: Token::default(),
       previous_token: Token::default(),
+      current_state: FnState { locals: BTreeMap::new() },
     }
   }
 
@@ -59,13 +72,31 @@ impl<'a, 'b> Parser<'a, 'b> {
     })
   }
 
+  fn variable(&mut self) -> AstNode {
+    self.advance();
+    let ident = AstNode::VarNode(VarNode {
+      name: self.previous_token.value().into(),
+    });
+    // todo: multiple vars with same name
+    if let None = self.current_state.locals.get(self.previous_token.value())
+    {
+      self
+        .current_state
+        .locals
+        .insert(self.previous_token.value().into(), 1);
+    }
+    ident
+  }
+
   fn primary(&mut self) -> AstNode {
-    // primary = "(" expr ")" | num
+    // primary = "(" expr ")" | ident | num
     if self.current_token.equal(TokenType::LEFT_BRACKET) {
       self.consume(TokenType::LEFT_BRACKET);
       let node = self.expr();
       self.consume(TokenType::RIGHT_BRACKET);
       return node;
+    } else if self.current_token.equal(TokenType::IDENT) {
+      self.variable()
     } else {
       self.num()
     }
@@ -165,9 +196,25 @@ impl<'a, 'b> Parser<'a, 'b> {
     left
   }
 
+  fn assign(&mut self) -> AstNode {
+    // assign = equality ("=" assign)?
+    let left = self.equality();
+    if self.current_token.equal(TokenType::EQUAL) {
+      let op = self.current_token.t_type().to_optype();
+      self.advance();
+      let right = self.assign();
+      return AstNode::AssignNode(AssignNode {
+        left_node: Box::new(left),
+        right_node: Box::new(right),
+        op,
+      });
+    }
+    left
+  }
+
   fn expr(&mut self) -> AstNode {
-    // expr = equality
-    self.equality()
+    // expr = assign
+    self.assign()
   }
 
   fn expr_stmt(&mut self) -> AstNode {
@@ -186,11 +233,19 @@ impl<'a, 'b> Parser<'a, 'b> {
 
   pub fn parse(&mut self) -> AstNode {
     self.advance();
-    let mut list = StmtList { stmts: vec![]};
+    let mut list = StmtListNode { stmts: vec![] };
     while !self.current_token.equal(TokenType::EOF) {
       list.stmts.push(self.stmt());
     }
     self.consume(TokenType::EOF);
-    return AstNode::StmtList(list);
+    let mut locals = vec![];
+    self.current_state.locals.iter().for_each(|(var, _) | {
+      locals.push(var.clone()); // todo: should not clone
+    });
+    AstNode::FunctionNode(FunctionNode {
+      stack_size: Cell::new(0),
+      body: list,
+      locals,
+    })
   }
 }

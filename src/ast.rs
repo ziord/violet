@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use crate::lexer::OpType;
 
 #[derive(Debug)]
@@ -24,8 +25,27 @@ pub struct ExprStmtNode {
 }
 
 #[derive(Debug)]
-pub struct StmtList {
+pub struct StmtListNode {
   pub(crate) stmts: Vec<AstNode>,
+}
+
+#[derive(Debug)]
+pub struct VarNode {
+  pub(crate) name: String,
+}
+
+#[derive(Debug)]
+pub struct AssignNode {
+  pub(crate) left_node: Box<AstNode>,
+  pub(crate) right_node: Box<AstNode>,
+  pub(crate) op: OpType,
+}
+
+#[derive(Debug)]
+pub struct FunctionNode {
+  pub(crate) stack_size: Cell<i32>,
+  pub(crate) body: StmtListNode,
+  pub(crate) locals: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -34,5 +54,7 @@ pub enum AstNode {
   BinaryNode(BinaryNode),
   UnaryNode(UnaryNode),
   ExprStmtNode(ExprStmtNode),
-  StmtList(StmtList),
+  FunctionNode(FunctionNode),
+  AssignNode(AssignNode),
+  VarNode(VarNode),
 }
