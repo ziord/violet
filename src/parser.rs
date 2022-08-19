@@ -1,4 +1,7 @@
-use crate::ast::{AssignNode, AstNode, BinaryNode, ExprStmtNode, FunctionNode, NumberNode, ReturnNode, StmtListNode, UnaryNode, VarNode};
+use crate::ast::{
+  AssignNode, AstNode, BinaryNode, BlockStmtNode, ExprStmtNode,
+  FunctionNode, NumberNode, ReturnNode, UnaryNode, VarNode,
+};
 use crate::errors::{ErrorInfo, ViError};
 use crate::lexer::{Lexer, Token, TokenType};
 use std::cell::Cell;
@@ -226,33 +229,45 @@ impl<'a, 'b> Parser<'a, 'b> {
     })
   }
 
+  fn compound_stmt(&mut self) -> AstNode {
+    let mut block = BlockStmtNode { stmts: vec![] };
+    while !self.match_tok(TokenType::RIGHT_CURLY) {
+      block.stmts.push(self.stmt());
+    }
+    AstNode::BlockStmtNode(block)
+  }
+
   fn stmt(&mut self) -> AstNode {
-    // stmt = "return" expr ";" | expr-stmt
+    // stmt = "return" expr ";" | "{" compound-stmt | expr-stmt
     if self.match_tok(TokenType::RETURN) {
       let node: AstNode = self.expr();
       self.consume(TokenType::SEMI_COLON);
       return AstNode::ReturnNode(ReturnNode {
-        expr: Box::new(node)
+        expr: Box::new(node),
       });
+    } else if self.match_tok(TokenType::LEFT_CURLY) {
+      self.compound_stmt()
+    } else {
+      self.expr_stmt()
     }
-    self.expr_stmt()
   }
 
   pub fn parse(&mut self) -> AstNode {
     self.advance();
-    let mut list = StmtListNode { stmts: vec![] };
-    while !self.current_token.equal(TokenType::EOF) {
-      list.stmts.push(self.stmt());
-    }
-    self.consume(TokenType::EOF);
+    self.consume(TokenType::LEFT_CURLY);
+    let list = self.compound_stmt();
     let mut locals = vec![];
     self.current_state.locals.iter().for_each(|(var, _)| {
       locals.push(var.clone()); // todo: should not clone
     });
-    AstNode::FunctionNode(FunctionNode {
-      stack_size: Cell::new(0),
-      body: list,
-      locals,
-    })
+    if let AstNode::BlockStmtNode(block) = list {
+      AstNode::FunctionNode(FunctionNode {
+        stack_size: Cell::new(0),
+        body: block,
+        locals,
+      })
+    } else {
+      panic!("expected BlockStmtNode node")
+    }
   }
 }

@@ -25,7 +25,7 @@ pub struct ExprStmtNode {
 }
 
 #[derive(Debug)]
-pub struct StmtListNode {
+pub struct BlockStmtNode {
   pub(crate) stmts: Vec<AstNode>,
 }
 
@@ -44,7 +44,7 @@ pub struct AssignNode {
 #[derive(Debug)]
 pub struct FunctionNode {
   pub(crate) stack_size: Cell<i32>,
-  pub(crate) body: StmtListNode,
+  pub(crate) body: BlockStmtNode,
   pub(crate) locals: Vec<String>,
 }
 
@@ -63,4 +63,5 @@ pub enum AstNode {
   AssignNode(AssignNode),
   VarNode(VarNode),
   ReturnNode(ReturnNode),
+  BlockStmtNode(BlockStmtNode),
 }

@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, FunctionNode, VarNode, StmtListNode};
+use crate::ast::{AstNode, BlockStmtNode, FunctionNode, VarNode};
 use crate::lexer::OpType;
 use crate::parser::Parser;
 use crate::util;
@@ -241,7 +241,7 @@ impl<'a> Compiler<'a> {
     self.c_(&unbox!(ExprStmtNode, node).node);
   }
 
-  fn c_stmt_list(&mut self, stmt_list: &StmtListNode) {
+  fn c_stmt_list(&mut self, stmt_list: &BlockStmtNode) {
     for stmt in &stmt_list.stmts {
       self.c_(stmt);
       assert_eq!(self.depth, 0, "Expected depth to be zero");
@@ -266,6 +266,7 @@ impl<'a> Compiler<'a> {
       AstNode::AssignNode(_) => self.c_assign(node),
       AstNode::VarNode(_) => self.c_var(node),
       AstNode::ReturnNode(_) => self.c_return(node),
+      AstNode::BlockStmtNode(n) => self.c_stmt_list(n),
     }
   }
 

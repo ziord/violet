@@ -23,6 +23,8 @@ pub enum TokenType {
   EQUAL,         // =
   SEMI_COLON,    // ;
   IDENT,         // id
+  LEFT_CURLY,    // {
+  RIGHT_CURLY,   // }
   RETURN,        // return
   BOF,           // |-
   EOF,           // -|
@@ -87,6 +89,8 @@ impl Display for TokenType {
       TokenType::SEMI_COLON => write!(f, "TOK<SEMI-COLON>"),
       TokenType::IDENT => write!(f, "TOK<IDENTIFIER>"),
       TokenType::RETURN => write!(f, "TOK<RETURN>"),
+      TokenType::LEFT_CURLY => write!(f, "TOK<LEFT-CURLY>"),
+      TokenType::RIGHT_CURLY => write!(f, "TOK<RIGHT-CURLY>"),
     }
   }
 }
@@ -317,6 +321,8 @@ impl<'a, 'b> Lexer<'a, 'b> {
       '(' => self.create_token(TokenType::LEFT_BRACKET),
       ')' => self.create_token(TokenType::RIGHT_BRACKET),
       ';' => self.create_token(TokenType::SEMI_COLON),
+      '{' => self.create_token(TokenType::LEFT_CURLY),
+      '}' => self.create_token(TokenType::RIGHT_CURLY),
       '<' => {
         if self.peek(None) == '=' {
           self.advance();
