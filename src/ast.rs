@@ -1,5 +1,5 @@
-use std::cell::Cell;
 use crate::lexer::OpType;
+use std::cell::Cell;
 
 #[derive(Debug)]
 pub struct NumberNode {
@@ -49,6 +49,11 @@ pub struct FunctionNode {
 }
 
 #[derive(Debug)]
+pub struct ReturnNode {
+  pub(crate) expr: Box<AstNode>,
+}
+
+#[derive(Debug)]
 pub enum AstNode {
   NumberNode(NumberNode),
   BinaryNode(BinaryNode),
@@ -57,4 +62,5 @@ pub enum AstNode {
   FunctionNode(FunctionNode),
   AssignNode(AssignNode),
   VarNode(VarNode),
+  ReturnNode(ReturnNode),
 }

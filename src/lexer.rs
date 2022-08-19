@@ -23,6 +23,7 @@ pub enum TokenType {
   EQUAL,         // =
   SEMI_COLON,    // ;
   IDENT,         // id
+  RETURN,        // return
   BOF,           // |-
   EOF,           // -|
   ERROR,
@@ -85,6 +86,7 @@ impl Display for TokenType {
       TokenType::NOT_EQUAL => write!(f, "TOK<NOT-EQUAL>"),
       TokenType::SEMI_COLON => write!(f, "TOK<SEMI-COLON>"),
       TokenType::IDENT => write!(f, "TOK<IDENTIFIER>"),
+      TokenType::RETURN => write!(f, "TOK<RETURN>"),
     }
   }
 }
@@ -184,6 +186,7 @@ impl<'a> Default for Token<'a> {
 
 impl<'a, 'b> Lexer<'a, 'b> {
   pub fn new(src: &'a str) -> Self {
+    let kwds = [("return", TokenType::RETURN)];
     Self {
       src,
       at_error: false,
@@ -191,7 +194,7 @@ impl<'a, 'b> Lexer<'a, 'b> {
       column: 1,
       start: 0,
       current: 0,
-      keywords: HashMap::new(),
+      keywords: HashMap::from(kwds),
     }
   }
 
@@ -207,9 +210,10 @@ impl<'a, 'b> Lexer<'a, 'b> {
   }
 
   fn ident_type(&self, ident: &str) -> TokenType {
-    match ident {
-      // "break" | "true" | "false" => (true, TokenType::EOF), // todo
-      _ => TokenType::IDENT,
+    if let Some(t_type) = self.keywords.get(ident) {
+      *t_type
+    } else {
+      TokenType::IDENT
     }
   }
 

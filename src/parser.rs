@@ -1,7 +1,4 @@
-use crate::ast::{
-  AssignNode, AstNode, BinaryNode, ExprStmtNode, FunctionNode, NumberNode,
-  StmtListNode, UnaryNode, VarNode,
-};
+use crate::ast::{AssignNode, AstNode, BinaryNode, ExprStmtNode, FunctionNode, NumberNode, ReturnNode, StmtListNode, UnaryNode, VarNode};
 use crate::errors::{ErrorInfo, ViError};
 use crate::lexer::{Lexer, Token, TokenType};
 use std::cell::Cell;
@@ -27,7 +24,9 @@ impl<'a, 'b> Parser<'a, 'b> {
       lexer: Lexer::new(src),
       current_token: Token::default(),
       previous_token: Token::default(),
-      current_state: FnState { locals: BTreeMap::new() },
+      current_state: FnState {
+        locals: BTreeMap::new(),
+      },
     }
   }
 
@@ -65,6 +64,15 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
   }
 
+  fn match_tok(&mut self, t_type: TokenType) -> bool {
+    if self.current_token.equal(t_type) {
+      self.advance();
+      true
+    } else {
+      false
+    }
+  }
+
   fn num(&mut self) -> AstNode {
     self.consume(TokenType::NUM);
     AstNode::NumberNode(NumberNode {
@@ -90,8 +98,7 @@ impl<'a, 'b> Parser<'a, 'b> {
 
   fn primary(&mut self) -> AstNode {
     // primary = "(" expr ")" | ident | num
-    if self.current_token.equal(TokenType::LEFT_BRACKET) {
-      self.consume(TokenType::LEFT_BRACKET);
+    if self.match_tok(TokenType::LEFT_BRACKET) {
       let node = self.expr();
       self.consume(TokenType::RIGHT_BRACKET);
       return node;
@@ -104,10 +111,7 @@ impl<'a, 'b> Parser<'a, 'b> {
 
   fn unary(&mut self) -> AstNode {
     // unary = ("+" | "-") unary | primary
-    if self.current_token.equal(TokenType::PLUS)
-      || self.current_token.equal(TokenType::MINUS)
-    {
-      self.advance();
+    if self.match_tok(TokenType::PLUS) || self.match_tok(TokenType::MINUS) {
       let op = self.previous_token.t_type().to_optype();
       let node = self.unary();
       return AstNode::UnaryNode(UnaryNode {
@@ -121,11 +125,10 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn term(&mut self) -> AstNode {
     // term = unary ("*" primary | "/" unary)*
     let mut left = self.unary();
-    while self.current_token.equal(TokenType::STAR)
-      || self.current_token.equal(TokenType::FWD_SLASH)
+    while self.match_tok(TokenType::STAR)
+      || self.match_tok(TokenType::FWD_SLASH)
     {
-      let op = self.current_token.t_type().to_optype();
-      self.advance();
+      let op = self.previous_token.t_type().to_optype();
       let right = self.unary();
       left = AstNode::BinaryNode(BinaryNode {
         left_node: Box::new(left),
@@ -139,11 +142,10 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn additive(&mut self) -> AstNode {
     // additive = term ("+" term | "-" term)*
     let mut left = self.term();
-    while self.current_token.equal(TokenType::PLUS)
-      || self.current_token.equal(TokenType::MINUS)
+    while self.match_tok(TokenType::PLUS)
+      || self.match_tok(TokenType::MINUS)
     {
-      let op = self.current_token.t_type().to_optype();
-      self.advance();
+      let op = self.previous_token.t_type().to_optype();
       let right = self.term();
       left = AstNode::BinaryNode(BinaryNode {
         left_node: Box::new(left),
@@ -181,10 +183,9 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn equality(&mut self) -> AstNode {
     // equality = relational ("==" relational | "!=" relational)*
     let mut left = self.relational();
-    while self.current_token.equal(TokenType::EQUAL_EQUAL)
-      || self.current_token.equal(TokenType::NOT_EQUAL)
+    while self.match_tok(TokenType::EQUAL_EQUAL)
+      || self.match_tok(TokenType::NOT_EQUAL)
     {
-      self.advance();
       let op = self.previous_token.t_type().to_optype();
       let right = self.relational();
       left = AstNode::BinaryNode(BinaryNode {
@@ -199,9 +200,8 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn assign(&mut self) -> AstNode {
     // assign = equality ("=" assign)?
     let left = self.equality();
-    if self.current_token.equal(TokenType::EQUAL) {
-      let op = self.current_token.t_type().to_optype();
-      self.advance();
+    if self.match_tok(TokenType::EQUAL) {
+      let op = self.previous_token.t_type().to_optype();
       let right = self.assign();
       return AstNode::AssignNode(AssignNode {
         left_node: Box::new(left),
@@ -227,7 +227,14 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn stmt(&mut self) -> AstNode {
-    // stmt = expr-stmt
+    // stmt = "return" expr ";" | expr-stmt
+    if self.match_tok(TokenType::RETURN) {
+      let node: AstNode = self.expr();
+      self.consume(TokenType::SEMI_COLON);
+      return AstNode::ReturnNode(ReturnNode {
+        expr: Box::new(node)
+      });
+    }
     self.expr_stmt()
   }
 
@@ -239,7 +246,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
     self.consume(TokenType::EOF);
     let mut locals = vec![];
-    self.current_state.locals.iter().for_each(|(var, _) | {
+    self.current_state.locals.iter().for_each(|(var, _)| {
       locals.push(var.clone()); // todo: should not clone
     });
     AstNode::FunctionNode(FunctionNode {

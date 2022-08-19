@@ -110,6 +110,11 @@ impl<'a> Compiler<'a> {
   fn emit_comment(&self, comment: &str) {
     println!("# {comment}");
   }
+
+  fn emit_label(&self, txt: &str) {
+    println!(".L{txt}:");
+  }
+
   fn emit_prologue(&mut self, func: &FunctionNode) {
     self.emit_comment("(begin prologue)");
     // set up frame pointer
@@ -123,6 +128,7 @@ impl<'a> Compiler<'a> {
 
   fn emit_epilogue(&mut self) {
     self.emit_comment("(begin epilogue)");
+    self.emit_label(".return");
     // reset the stack pointer to its original value
     // since (rbp holds the original value,, see prolog())
     println!("  mov %rbp, %rsp");
@@ -178,9 +184,6 @@ impl<'a> Compiler<'a> {
       OpType::MUL => {
         println!("  imul %rdi, %rax");
       }
-      OpType::EQ => {
-        todo!()
-      }
       // relational ops
       _ => {
         println!("  cmp %rdi, %rax");
@@ -227,6 +230,13 @@ impl<'a> Compiler<'a> {
     }
   }
 
+  fn c_return(&mut self, node: &AstNode) {
+    let node = unbox!(ReturnNode, node);
+    self.c_(&node.expr);
+    // emit a jmp to the return site
+    println!("  jmp .L.return"); // .L.return currently in prologue
+  }
+
   fn c_expr_stmt(&mut self, node: &AstNode) {
     self.c_(&unbox!(ExprStmtNode, node).node);
   }
@@ -255,6 +265,7 @@ impl<'a> Compiler<'a> {
       AstNode::FunctionNode(_) => self.c_function(node),
       AstNode::AssignNode(_) => self.c_assign(node),
       AstNode::VarNode(_) => self.c_var(node),
+      AstNode::ReturnNode(_) => self.c_return(node),
     }
   }
 
