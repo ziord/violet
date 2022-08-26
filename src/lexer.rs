@@ -27,6 +27,7 @@ pub enum TokenType {
   IF,            // if
   ELSE,          // else
   FOR,           // for
+  WHILE,         // while
   BOF,           // |-
   EOF,           // -|
   ERROR,
@@ -93,6 +94,7 @@ impl Display for TokenType {
       TokenType::IF => write!(f, "TOK<IF>"),
       TokenType::ELSE => write!(f, "TOK<ELSE>"),
       TokenType::FOR => write!(f, "TOK<FOR>"),
+      TokenType::WHILE => write!(f, "TOK<WHILE>"),
       TokenType::LEFT_CURLY => write!(f, "TOK<LEFT-CURLY>"),
       TokenType::RIGHT_CURLY => write!(f, "TOK<RIGHT-CURLY>"),
     }
@@ -199,6 +201,7 @@ impl<'a, 'b> Lexer<'a, 'b> {
       ("if", TokenType::IF),
       ("else", TokenType::ELSE),
       ("for", TokenType::FOR),
+      ("while", TokenType::WHILE),
     ];
     Self {
       src,

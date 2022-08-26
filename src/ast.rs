@@ -65,7 +65,13 @@ pub struct ForLoopNode {
   pub(crate) init: Box<AstNode>,
   pub(crate) condition: Box<AstNode>,
   pub(crate) incr: Box<AstNode>,
-  pub(crate) block: Box<AstNode>,
+  pub(crate) body: Box<AstNode>,
+}
+
+#[derive(Debug)]
+pub struct WhileLoopNode {
+  pub(crate) condition: Box<AstNode>,
+  pub(crate) body: Box<AstNode>,
 }
 
 #[derive(Debug)]
@@ -81,4 +87,5 @@ pub enum AstNode {
   BlockStmtNode(BlockStmtNode),
   IfElseNode(IfElseNode),
   ForLoopNode(ForLoopNode),
+  WhileLoopNode(WhileLoopNode),
 }

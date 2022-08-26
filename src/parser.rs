@@ -1,7 +1,7 @@
 use crate::ast::{
   AssignNode, AstNode, BinaryNode, BlockStmtNode, ExprStmtNode,
   ForLoopNode, FunctionNode, IfElseNode, NumberNode, ReturnNode, UnaryNode,
-  VarNode,
+  VarNode, WhileLoopNode,
 };
 use crate::errors::{ErrorInfo, ViError};
 use crate::lexer::{Lexer, Token, TokenType};
@@ -247,11 +247,23 @@ impl<'a, 'b> Parser<'a, 'b> {
 
   fn stmt(&mut self) -> AstNode {
     // stmt = "for" "(" expr-stmt expr? ";" expr? ")" stmt
+    //          | "while" "(" expr ")" stmt
     //          | if "(" expr ")" stmt ("else" stmt)?
     //          | "return" expr ";"
     //          | "{" compound-stmt
     //          | expr-stmt
     match self.current_token.t_type() {
+      TokenType::WHILE => {
+        self.advance();
+        self.consume(TokenType::LEFT_BRACKET);
+        let condition = self.expr();
+        self.consume(TokenType::RIGHT_BRACKET);
+        let block = self.stmt();
+        AstNode::WhileLoopNode(WhileLoopNode {
+          condition: Box::new(condition),
+          body: Box::new(block),
+        })
+      }
       TokenType::FOR => {
         self.advance();
         let init;
@@ -279,7 +291,7 @@ impl<'a, 'b> Parser<'a, 'b> {
           init: Box::new(init),
           condition: Box::new(condition),
           incr: Box::new(incr),
-          block: Box::new(block),
+          body: Box::new(block),
         })
       }
       TokenType::IF => {
