@@ -57,4 +57,5 @@ assert 1 '35.c'
 assert 2 '36.c'
 assert 3 '37.c'
 assert 3 '38.c'
+assert 5 '39.c'
 echo OK

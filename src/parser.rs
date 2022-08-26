@@ -221,7 +221,10 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn expr_stmt(&mut self) -> AstNode {
-    // expr-stmt = expr ";"
+    // expr-stmt = expr? ";"
+    if self.match_tok(TokenType::SEMI_COLON) {
+      return AstNode::BlockStmtNode(BlockStmtNode { stmts: vec![] });
+    }
     let node = self.expr();
     self.consume(TokenType::SEMI_COLON);
     AstNode::ExprStmtNode(ExprStmtNode {
