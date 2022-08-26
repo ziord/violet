@@ -54,6 +54,13 @@ pub struct ReturnNode {
 }
 
 #[derive(Debug)]
+pub struct IfElseNode {
+  pub(crate) condition: Box<AstNode>,
+  pub(crate) if_block: Box<AstNode>,
+  pub(crate) else_block: Box<AstNode>,
+}
+
+#[derive(Debug)]
 pub enum AstNode {
   NumberNode(NumberNode),
   BinaryNode(BinaryNode),
@@ -64,4 +71,5 @@ pub enum AstNode {
   VarNode(VarNode),
   ReturnNode(ReturnNode),
   BlockStmtNode(BlockStmtNode),
+  IfElseNode(IfElseNode),
 }

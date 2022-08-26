@@ -8,6 +8,7 @@ use std::collections::HashMap;
 struct GenState {
   symbols: HashMap<String, i32>,
   stack_size: i32,
+  counter: i32,
 }
 
 impl Default for GenState {
@@ -15,6 +16,7 @@ impl Default for GenState {
     Self {
       symbols: HashMap::new(),
       stack_size: 0,
+      counter: 0,
     }
   }
 }
@@ -104,6 +106,12 @@ impl<'a> Compiler<'a> {
     format!("{offset}(%rbp)")
   }
 
+  fn create_label(&mut self, prefix: &str) -> String {
+    let label = prefix.to_string() + &self.gen.counter.to_string();
+    self.gen.counter += 1;
+    format!(".L.{}", label)
+  }
+
   ///********************
   ///* Emitters
   ///********************
@@ -112,7 +120,7 @@ impl<'a> Compiler<'a> {
   }
 
   fn emit_label(&self, txt: &str) {
-    println!(".L{txt}:");
+    println!("{txt}:");
   }
 
   fn emit_prologue(&mut self, func: &FunctionNode) {
@@ -128,7 +136,7 @@ impl<'a> Compiler<'a> {
 
   fn emit_epilogue(&mut self) {
     self.emit_comment("(begin epilogue)");
-    self.emit_label(".return");
+    self.emit_label(".L.return");
     // reset the stack pointer to its original value
     // since (rbp holds the original value,, see prolog())
     println!("  mov %rbp, %rsp");
@@ -248,6 +256,23 @@ impl<'a> Compiler<'a> {
     }
   }
 
+  fn c_if_else(&mut self, node: &AstNode) {
+    let node = unbox!(IfElseNode, node);
+    self.c_(&node.condition);
+    // cmp $0, %rax
+    // je else_label
+    let else_label = self.create_label("else");
+    println!("  cmp $0, %rax");
+    println!("  je {}", else_label);
+    self.c_(&node.if_block);
+    // jmp end_label
+    let end_label = self.create_label("endif");
+    println!("  jmp {}", end_label);
+    self.emit_label(&else_label);
+    self.c_(&node.else_block);
+    self.emit_label(&end_label);
+  }
+
   fn c_function(&mut self, node: &AstNode) {
     let mut func = unbox!(FunctionNode, node);
     self.store_lvar_offsets(&mut func);
@@ -267,6 +292,7 @@ impl<'a> Compiler<'a> {
       AstNode::VarNode(_) => self.c_var(node),
       AstNode::ReturnNode(_) => self.c_return(node),
       AstNode::BlockStmtNode(n) => self.c_stmt_list(n),
+      AstNode::IfElseNode(_) => self.c_if_else(node),
     }
   }
 

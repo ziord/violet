@@ -1,6 +1,6 @@
 use crate::ast::{
   AssignNode, AstNode, BinaryNode, BlockStmtNode, ExprStmtNode,
-  FunctionNode, NumberNode, ReturnNode, UnaryNode, VarNode,
+  FunctionNode, IfElseNode, NumberNode, ReturnNode, UnaryNode, VarNode,
 };
 use crate::errors::{ErrorInfo, ViError};
 use crate::lexer::{Lexer, Token, TokenType};
@@ -241,8 +241,28 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn stmt(&mut self) -> AstNode {
-    // stmt = "return" expr ";" | "{" compound-stmt | expr-stmt
-    if self.match_tok(TokenType::RETURN) {
+    // stmt = if "(" expr ")" stmt ("else" stmt)?
+    //          | "return" expr ";"
+    //          | "{" compound-stmt
+    //          | expr-stmt
+    if self.match_tok(TokenType::IF) {
+      self.consume(TokenType::LEFT_BRACKET);
+      let condition = Box::new(self.expr());
+      self.consume(TokenType::RIGHT_BRACKET);
+      let if_block = Box::new(self.stmt());
+      let else_block;
+      if self.match_tok(TokenType::ELSE) {
+        else_block = Box::new(self.stmt());
+      } else {
+        else_block =
+          Box::new(AstNode::BlockStmtNode(BlockStmtNode { stmts: vec![] }))
+      }
+      return AstNode::IfElseNode(IfElseNode {
+        condition,
+        if_block,
+        else_block,
+      });
+    } else if self.match_tok(TokenType::RETURN) {
       let node: AstNode = self.expr();
       self.consume(TokenType::SEMI_COLON);
       return AstNode::ReturnNode(ReturnNode {

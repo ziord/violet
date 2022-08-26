@@ -1,5 +1,3 @@
-// a simple lexer with three token types
-
 use crate::errors::ViError;
 use std::fmt::Formatter;
 use std::{collections::HashMap, fmt::Display};
@@ -26,6 +24,8 @@ pub enum TokenType {
   LEFT_CURLY,    // {
   RIGHT_CURLY,   // }
   RETURN,        // return
+  IF,            // if
+  ELSE,          // else
   BOF,           // |-
   EOF,           // -|
   ERROR,
@@ -89,6 +89,8 @@ impl Display for TokenType {
       TokenType::SEMI_COLON => write!(f, "TOK<SEMI-COLON>"),
       TokenType::IDENT => write!(f, "TOK<IDENTIFIER>"),
       TokenType::RETURN => write!(f, "TOK<RETURN>"),
+      TokenType::IF => write!(f, "TOK<IF>"),
+      TokenType::ELSE => write!(f, "TOK<ELSE>"),
       TokenType::LEFT_CURLY => write!(f, "TOK<LEFT-CURLY>"),
       TokenType::RIGHT_CURLY => write!(f, "TOK<RIGHT-CURLY>"),
     }
@@ -190,7 +192,11 @@ impl<'a> Default for Token<'a> {
 
 impl<'a, 'b> Lexer<'a, 'b> {
   pub fn new(src: &'a str) -> Self {
-    let kwds = [("return", TokenType::RETURN)];
+    let kwds = [
+      ("return", TokenType::RETURN),
+      ("if", TokenType::IF),
+      ("else", TokenType::ELSE),
+    ];
     Self {
       src,
       at_error: false,
