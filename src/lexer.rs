@@ -26,6 +26,7 @@ pub enum TokenType {
   RETURN,        // return
   IF,            // if
   ELSE,          // else
+  FOR,           // for
   BOF,           // |-
   EOF,           // -|
   ERROR,
@@ -91,6 +92,7 @@ impl Display for TokenType {
       TokenType::RETURN => write!(f, "TOK<RETURN>"),
       TokenType::IF => write!(f, "TOK<IF>"),
       TokenType::ELSE => write!(f, "TOK<ELSE>"),
+      TokenType::FOR => write!(f, "TOK<FOR>"),
       TokenType::LEFT_CURLY => write!(f, "TOK<LEFT-CURLY>"),
       TokenType::RIGHT_CURLY => write!(f, "TOK<RIGHT-CURLY>"),
     }
@@ -196,6 +198,7 @@ impl<'a, 'b> Lexer<'a, 'b> {
       ("return", TokenType::RETURN),
       ("if", TokenType::IF),
       ("else", TokenType::ELSE),
+      ("for", TokenType::FOR),
     ];
     Self {
       src,

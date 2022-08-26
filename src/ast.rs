@@ -61,6 +61,14 @@ pub struct IfElseNode {
 }
 
 #[derive(Debug)]
+pub struct ForLoopNode {
+  pub(crate) init: Box<AstNode>,
+  pub(crate) condition: Box<AstNode>,
+  pub(crate) incr: Box<AstNode>,
+  pub(crate) block: Box<AstNode>,
+}
+
+#[derive(Debug)]
 pub enum AstNode {
   NumberNode(NumberNode),
   BinaryNode(BinaryNode),
@@ -72,4 +80,5 @@ pub enum AstNode {
   ReturnNode(ReturnNode),
   BlockStmtNode(BlockStmtNode),
   IfElseNode(IfElseNode),
+  ForLoopNode(ForLoopNode),
 }

@@ -107,9 +107,9 @@ impl<'a> Compiler<'a> {
   }
 
   fn create_label(&mut self, prefix: &str) -> String {
-    let label = prefix.to_string() + &self.gen.counter.to_string();
+    let count = self.gen.counter;
     self.gen.counter += 1;
-    format!(".L.{}", label)
+    format!(".L.{prefix}.{count}")
   }
 
   ///********************
@@ -121,6 +121,10 @@ impl<'a> Compiler<'a> {
 
   fn emit_label(&self, txt: &str) {
     println!("{txt}:");
+  }
+
+  fn emit_jmp(&self, txt: &str) {
+    println!("  jmp {}", txt);
   }
 
   fn emit_prologue(&mut self, func: &FunctionNode) {
@@ -242,7 +246,7 @@ impl<'a> Compiler<'a> {
     let node = unbox!(ReturnNode, node);
     self.c_(&node.expr);
     // emit a jmp to the return site
-    println!("  jmp .L.return"); // .L.return currently in prologue
+    self.emit_jmp(".L.return"); // .L.return currently in prologue
   }
 
   fn c_expr_stmt(&mut self, node: &AstNode) {
@@ -267,9 +271,30 @@ impl<'a> Compiler<'a> {
     self.c_(&node.if_block);
     // jmp end_label
     let end_label = self.create_label("endif");
-    println!("  jmp {}", end_label);
+    self.emit_jmp(&end_label);
     self.emit_label(&else_label);
     self.c_(&node.else_block);
+    self.emit_label(&end_label);
+  }
+
+  fn c_for_loop(&mut self, node: &AstNode) {
+    let node = unbox!(ForLoopNode, node);
+    self.c_(&node.init);
+    let cond_label = self.create_label("for_cond");
+    // let incr_label = self.create_label("for_incr");
+    let end_label = self.create_label("for_end");
+    // let body_label = self.create_label("for_body");
+    // condition block
+    self.emit_label(&cond_label);
+    self.c_(&node.condition);
+    println!("  cmp $0, %rax");
+    println!("  je {}", end_label);
+    // body block
+    self.c_(&node.block);
+    // incr block
+    self.c_(&node.incr);
+    self.emit_jmp(&cond_label); // go to condition
+    // end of loop
     self.emit_label(&end_label);
   }
 
@@ -293,6 +318,7 @@ impl<'a> Compiler<'a> {
       AstNode::ReturnNode(_) => self.c_return(node),
       AstNode::BlockStmtNode(n) => self.c_stmt_list(n),
       AstNode::IfElseNode(_) => self.c_if_else(node),
+      AstNode::ForLoopNode(_) => self.c_for_loop(node),
     }
   }
 

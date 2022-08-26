@@ -1,6 +1,7 @@
 use crate::ast::{
   AssignNode, AstNode, BinaryNode, BlockStmtNode, ExprStmtNode,
-  FunctionNode, IfElseNode, NumberNode, ReturnNode, UnaryNode, VarNode,
+  ForLoopNode, FunctionNode, IfElseNode, NumberNode, ReturnNode, UnaryNode,
+  VarNode,
 };
 use crate::errors::{ErrorInfo, ViError};
 use crate::lexer::{Lexer, Token, TokenType};
@@ -223,7 +224,7 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn expr_stmt(&mut self) -> AstNode {
     // expr-stmt = expr? ";"
     if self.match_tok(TokenType::SEMI_COLON) {
-      return AstNode::BlockStmtNode(BlockStmtNode { stmts: vec![] });
+      return self.empty_stmt();
     }
     let node = self.expr();
     self.consume(TokenType::SEMI_COLON);
@@ -240,38 +241,78 @@ impl<'a, 'b> Parser<'a, 'b> {
     AstNode::BlockStmtNode(block)
   }
 
+  fn empty_stmt(&self) -> AstNode {
+    AstNode::BlockStmtNode(BlockStmtNode { stmts: vec![] })
+  }
+
   fn stmt(&mut self) -> AstNode {
-    // stmt = if "(" expr ")" stmt ("else" stmt)?
+    // stmt = "for" "(" expr-stmt expr? ";" expr? ")" stmt
+    //          | if "(" expr ")" stmt ("else" stmt)?
     //          | "return" expr ";"
     //          | "{" compound-stmt
     //          | expr-stmt
-    if self.match_tok(TokenType::IF) {
-      self.consume(TokenType::LEFT_BRACKET);
-      let condition = Box::new(self.expr());
-      self.consume(TokenType::RIGHT_BRACKET);
-      let if_block = Box::new(self.stmt());
-      let else_block;
-      if self.match_tok(TokenType::ELSE) {
-        else_block = Box::new(self.stmt());
-      } else {
-        else_block =
-          Box::new(AstNode::BlockStmtNode(BlockStmtNode { stmts: vec![] }))
+    match self.current_token.t_type() {
+      TokenType::FOR => {
+        self.advance();
+        let init;
+        let condition;
+        let incr;
+        self.consume(TokenType::LEFT_BRACKET);
+        if !self.match_tok(TokenType::SEMI_COLON) {
+          init = self.stmt();
+        } else {
+          init = self.empty_stmt();
+        }
+        if !self.match_tok(TokenType::SEMI_COLON) {
+          condition = self.expr_stmt();
+        } else {
+          condition = self.empty_stmt();
+        }
+        if !self.match_tok(TokenType::RIGHT_BRACKET) {
+          incr = self.expr();
+          self.consume(TokenType::RIGHT_BRACKET);
+        } else {
+          incr = self.empty_stmt();
+        }
+        let block = self.stmt();
+        AstNode::ForLoopNode(ForLoopNode {
+          init: Box::new(init),
+          condition: Box::new(condition),
+          incr: Box::new(incr),
+          block: Box::new(block),
+        })
       }
-      return AstNode::IfElseNode(IfElseNode {
-        condition,
-        if_block,
-        else_block,
-      });
-    } else if self.match_tok(TokenType::RETURN) {
-      let node: AstNode = self.expr();
-      self.consume(TokenType::SEMI_COLON);
-      return AstNode::ReturnNode(ReturnNode {
-        expr: Box::new(node),
-      });
-    } else if self.match_tok(TokenType::LEFT_CURLY) {
-      self.compound_stmt()
-    } else {
-      self.expr_stmt()
+      TokenType::IF => {
+        self.advance();
+        self.consume(TokenType::LEFT_BRACKET);
+        let condition = Box::new(self.expr());
+        self.consume(TokenType::RIGHT_BRACKET);
+        let if_block = Box::new(self.stmt());
+        let else_block;
+        if self.match_tok(TokenType::ELSE) {
+          else_block = Box::new(self.stmt());
+        } else {
+          else_block = Box::new(self.empty_stmt())
+        }
+        return AstNode::IfElseNode(IfElseNode {
+          condition,
+          if_block,
+          else_block,
+        });
+      }
+      TokenType::RETURN => {
+        self.advance();
+        let node: AstNode = self.expr();
+        self.consume(TokenType::SEMI_COLON);
+        return AstNode::ReturnNode(ReturnNode {
+          expr: Box::new(node),
+        });
+      }
+      TokenType::LEFT_CURLY => {
+        self.advance();
+        self.compound_stmt()
+      }
+      _ => self.expr_stmt(),
     }
   }
 
