@@ -4,7 +4,7 @@ use crate::ast::{
   VarNode, WhileLoopNode,
 };
 use crate::errors::{ErrorInfo, ViError};
-use crate::lexer::{Lexer, Token, TokenType};
+use crate::lexer::{Lexer, OpType, Token, TokenType};
 use std::cell::Cell;
 use std::collections::BTreeMap;
 
@@ -114,16 +114,27 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn unary(&mut self) -> AstNode {
-    // unary = ("+" | "-") unary | primary
-    if self.match_tok(TokenType::PLUS) || self.match_tok(TokenType::MINUS) {
-      let op = self.previous_token.t_type().to_optype();
-      let node = self.unary();
-      return AstNode::UnaryNode(UnaryNode {
-        node: Box::new(node),
-        op,
-      });
+    // unary = ("+" | "-" | "*" | "&") unary | primary
+    match self.current_token.t_type() {
+      TokenType::PLUS
+      | TokenType::MINUS
+      | TokenType::STAR
+      | TokenType::AMP => {
+        self.advance();
+        let mut op = self.previous_token.t_type().to_optype();
+        if op == OpType::MUL {
+          op = OpType::DEREF;
+        }
+        let node = self.unary();
+        AstNode::UnaryNode(UnaryNode {
+          node: Box::new(node),
+          op,
+        })
+      }
+      _ => {
+        self.primary()
+      }
     }
-    self.primary()
   }
 
   fn term(&mut self) -> AstNode {

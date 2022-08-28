@@ -149,6 +149,25 @@ impl<'a> Compiler<'a> {
     self.emit_comment("(end epilogue)");
   }
 
+  fn emit_address(&mut self, node: &AstNode) {
+    match node {
+      AstNode::VarNode(n) => {
+        println!("  lea {}, %rax", self.get_address(n));
+      }
+      AstNode::UnaryNode(ref addr_node) => {
+        match addr_node.op {
+          OpType::DEREF => {
+            // assuming n is UnaryNode(*)
+            // &*var -> var
+            self.c_(&addr_node.node);
+          }
+          _ => self.emit_address(&addr_node.node)
+        }
+      }
+      _ => panic!("Unsupported node for emit_address")
+    }
+  }
+
   ///***********************
   ///* Compilation routines
   ///***********************
@@ -159,7 +178,7 @@ impl<'a> Compiler<'a> {
 
   fn c_var(&mut self, node: &AstNode) {
     // store address in rax
-    println!("  lea {}, %rax", self.get_address(unbox!(VarNode, node)));
+    self.emit_address(node);
     // move value at address in memory into rax
     println!("  mov (%rax), %rax");
   }
@@ -167,11 +186,17 @@ impl<'a> Compiler<'a> {
   fn c_assign(&mut self, node: &AstNode) {
     self.emit_comment("(begin assignment)");
     let node = unbox!(AssignNode, node);
-    self.c_(&node.right_node);
-    // todo!!! assuming left is VarNode
-    let left = unbox!(VarNode, &*node.left_node);
-    println!("  mov %rax, {}", self.get_address(left));
     // todo!!! use op
+    if let AstNode::VarNode(left) = &*node.left_node {
+      self.c_(&node.right_node);
+      println!("  mov %rax, {}", self.get_address(left));
+    } else {
+      self.c_(&node.right_node);
+      self.push_reg();
+      self.emit_address(&node.left_node);
+      self.pop_reg("rdi"); // val
+      println!("  mov %rdi, (%rax)");
+    }
     self.emit_comment("(end assignment)");
   }
 
@@ -229,14 +254,23 @@ impl<'a> Compiler<'a> {
   }
 
   fn c_unary(&mut self, node: &AstNode) {
-    let node = unbox!(UnaryNode, node);
-    match node.op {
+    let u_node = unbox!(UnaryNode, node);
+    match u_node.op {
       OpType::PLUS => {
-        self.c_(&*node.node);
+        self.c_(&*u_node.node);
       }
       OpType::MINUS => {
-        self.c_(&*node.node);
+        self.c_(&*u_node.node);
         println!("  neg %rax");
+      }
+      OpType::DEREF => {
+        self.emit_comment("(begin deref)");
+        self.c_(&*u_node.node);
+        println!("  mov (%rax), %rax");
+        self.emit_comment("(end deref)");
+      }
+      OpType::ADDR => {
+        self.emit_address(&*u_node.node);
       }
       _ => unreachable!(),
     }

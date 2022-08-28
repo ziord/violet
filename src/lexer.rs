@@ -23,6 +23,7 @@ pub enum TokenType {
   IDENT,         // id
   LEFT_CURLY,    // {
   RIGHT_CURLY,   // }
+  AMP,           // &
   RETURN,        // return
   IF,            // if
   ELSE,          // else
@@ -33,7 +34,7 @@ pub enum TokenType {
   ERROR,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialOrd, PartialEq)]
 pub enum OpType {
   PLUS,  // +
   MINUS, // -
@@ -46,6 +47,8 @@ pub enum OpType {
   EQQ,   // ==
   NEQ,   // !=
   EQ,    // =
+  ADDR,  // &
+  DEREF, // *
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -89,6 +92,7 @@ impl Display for TokenType {
       TokenType::EQUAL => write!(f, "TOK<EQUAL>"),
       TokenType::NOT_EQUAL => write!(f, "TOK<NOT-EQUAL>"),
       TokenType::SEMI_COLON => write!(f, "TOK<SEMI-COLON>"),
+      TokenType::AMP => write!(f, "TOK<AMP>"),
       TokenType::IDENT => write!(f, "TOK<IDENTIFIER>"),
       TokenType::RETURN => write!(f, "TOK<RETURN>"),
       TokenType::IF => write!(f, "TOK<IF>"),
@@ -115,6 +119,8 @@ impl Display for OpType {
       OpType::EQQ => write!(f, "=="),
       OpType::NEQ => write!(f, "!="),
       OpType::EQ => write!(f, "="),
+      OpType::ADDR => write!(f, "&"),
+      OpType::DEREF => write!(f, "*"),
     }
   }
 }
@@ -133,6 +139,7 @@ impl TokenType {
       TokenType::GRT_THAN => OpType::GT,
       TokenType::LESS_THAN => OpType::LT,
       TokenType::EQUAL => OpType::EQ,
+      TokenType::AMP => OpType::ADDR,
       _ => panic!("{} is not an operator", self.to_string()),
     }
   }
@@ -329,6 +336,7 @@ impl<'a, 'b> Lexer<'a, 'b> {
       '+' => self.create_token(TokenType::PLUS),
       '-' => self.create_token(TokenType::MINUS),
       '*' => self.create_token(TokenType::STAR),
+      '&' => self.create_token(TokenType::AMP),
       '/' => self.create_token(TokenType::FWD_SLASH),
       '(' => self.create_token(TokenType::LEFT_BRACKET),
       ')' => self.create_token(TokenType::RIGHT_BRACKET),
