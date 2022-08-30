@@ -2,6 +2,7 @@
 pub enum ViError {
   EL001, // unrecognized token
   EP001, // mismatch token
+  EP002, // missing type
 }
 
 #[derive(Debug)]
@@ -35,6 +36,7 @@ impl ViError {
         "The token found at this context is illegal/unknown."
       ),
       ViError::EP001 => info!(self, "Token mismatch", ""),
+      ViError::EP002 => info!(self, "Missing type", "Variable referenced before declaration"),
     }
   }
 }

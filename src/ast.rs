@@ -1,9 +1,12 @@
 use crate::lexer::OpType;
-use std::cell::Cell;
+use crate::types::{Type, TypeStack};
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 
 #[derive(Debug)]
 pub struct NumberNode {
   pub(crate) value: i32,
+  pub(crate) ty: RefCell<Rc<Type>>,
 }
 
 #[derive(Debug)]
@@ -17,6 +20,7 @@ pub struct BinaryNode {
 pub struct UnaryNode {
   pub(crate) node: Box<AstNode>,
   pub(crate) op: OpType,
+  pub(crate) ty: RefCell<Rc<Type>>,
 }
 
 #[derive(Debug)]
@@ -32,6 +36,7 @@ pub struct BlockStmtNode {
 #[derive(Debug)]
 pub struct VarNode {
   pub(crate) name: String,
+  pub(crate) ty: RefCell<Rc<Type>>,
 }
 
 #[derive(Debug)]
@@ -46,6 +51,8 @@ pub struct FunctionNode {
   pub(crate) stack_size: Cell<i32>,
   pub(crate) body: BlockStmtNode,
   pub(crate) locals: Vec<String>,
+  pub(crate) types: Rc<RefCell<TypeStack>>,
+  pub(crate) ty: RefCell<Rc<Type>>,
 }
 
 #[derive(Debug)]

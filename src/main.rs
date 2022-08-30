@@ -4,6 +4,7 @@ mod errors;
 mod lexer;
 mod parser;
 mod util;
+mod types;
 
 use std::env;
 

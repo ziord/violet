@@ -1,8 +1,12 @@
-use crate::ast::{AstNode, BlockStmtNode, FunctionNode, VarNode};
+use crate::ast::{
+  AstNode, BinaryNode, BlockStmtNode, FunctionNode, VarNode,
+};
 use crate::lexer::OpType;
 use crate::parser::Parser;
+use crate::types::{Type, TypeCheck, TypeLiteral, TypeProp};
 use crate::util;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 #[derive(Debug)]
 struct GenState {
@@ -36,8 +40,10 @@ pub struct Compiler<'a> {
   filename: &'a str,
   depth: i32,
   gen: GenState,
+  tc: TypeCheck<'a>,
 }
 
+#[macro_export]
 macro_rules! unbox {
   ($tt: tt, $nd: expr) => {
     if let AstNode::$tt(v_) = $nd {
@@ -54,6 +60,7 @@ impl<'a> Compiler<'a> {
       filename,
       depth: 0,
       gen: GenState::default(),
+      tc: TypeCheck::new(),
     }
   }
 
@@ -161,10 +168,10 @@ impl<'a> Compiler<'a> {
             // &*var -> var
             self.c_(&addr_node.node);
           }
-          _ => self.emit_address(&addr_node.node)
+          _ => self.emit_address(&addr_node.node),
         }
       }
-      _ => panic!("Unsupported node for emit_address")
+      _ => panic!("Unsupported node for emit_address"),
     }
   }
 
@@ -200,9 +207,71 @@ impl<'a> Compiler<'a> {
     self.emit_comment("(end assignment)");
   }
 
+  fn c_ptr_binary(
+    &mut self,
+    node: &BinaryNode,
+    left_ty: &Rc<Type>,
+    right_ty: &Rc<Type>,
+  ) {
+    let left: &AstNode;
+    let right: &AstNode;
+    if left_ty.kind.get() == TypeLiteral::TYPE_PTR {
+      left = &node.left_node;
+      right = &node.right_node;
+    } else {
+      left = &node.right_node;
+      right = &node.left_node;
+    }
+    if node.op == OpType::PLUS {
+      // ptr + int (int + ptr) -> ptr + (int * 8)
+      self.c_(right);
+      println!("  imul $8, %rax, %rax");
+      self.push_reg();
+      self.c_(left);
+      self.pop_reg("rdi");
+      // %rax -> %rax + %rdi
+      println!("  add %rdi, %rax"); // left + right
+    } else {
+      if right_ty.kind.get() == TypeLiteral::TYPE_INT {
+        // ptr - int -> ptr - (int * 8)
+        self.c_(right);
+        println!("  imul $8, %rax, %rax");
+        self.push_reg();
+        self.c_(left);
+        self.pop_reg("rdi");
+        // %rax -> %rax - %rdi
+        println!("  sub %rdi, %rax"); // left - right
+      } else {
+        // ptr - ptr -> (ptr - ptr) / 8
+        self.c_(right);
+        self.push_reg();
+        self.c_(left);
+        self.pop_reg("rdi");
+        println!("  sub %rdi, %rax"); // right -> left - right
+        println!("  mov $8, %rdi");
+        println!("  cqo");
+        println!("  idiv %rdi");
+      }
+    }
+  }
+
   fn c_binary(&mut self, node: &AstNode) {
     self.emit_comment("(begin binary expr)");
     let node = unbox!(BinaryNode, node);
+    if node.op == OpType::PLUS || node.op == OpType::MINUS {
+      // type-check, if any of the operand is a pointer, use c_ptr_binary
+      let left_ty = self.tc.tc(&node.left_node).unwrap();
+      let right_ty = self.tc.tc(&node.right_node).unwrap();
+      if left_ty.kind.get() == TypeLiteral::TYPE_PTR
+        && right_ty.kind.get() == TypeLiteral::TYPE_INT
+        || left_ty.kind.get() == TypeLiteral::TYPE_INT
+          && right_ty.kind.get() == TypeLiteral::TYPE_PTR
+        || left_ty.kind.get() == TypeLiteral::TYPE_PTR
+          && right_ty.kind.get() == TypeLiteral::TYPE_PTR
+      {
+        return self.c_ptr_binary(node, &left_ty, &right_ty);
+      }
+    }
     self.c_(&node.right_node);
     self.push_reg();
     self.c_(&node.left_node); // places left into %rax
@@ -328,8 +397,7 @@ impl<'a> Compiler<'a> {
     // incr block
     self.c_(&node.incr);
     self.emit_jmp(&cond_label); // go to condition
-    // end of loop
-    self.emit_label(&end_label);
+    self.emit_label(&end_label); // end of loop
   }
 
   fn c_while_loop(&mut self, node: &AstNode) {
@@ -376,6 +444,12 @@ impl<'a> Compiler<'a> {
       return Err(res.unwrap_err());
     }
     let root = res.unwrap();
+    let mut tp = TypeProp::new();
+    tp.propagate_types(&root);
+    // todo: enable
+    // if let Err(msg) = self.tc.typecheck(&root) {
+    //   return Err(msg);
+    // }
     println!("  .global _main");
     println!("_main:");
     self.c_(&root);

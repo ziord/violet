@@ -5,13 +5,17 @@ use crate::ast::{
 };
 use crate::errors::{ErrorInfo, ViError};
 use crate::lexer::{Lexer, OpType, Token, TokenType};
-use std::cell::Cell;
+use crate::types::{Type, TypeLiteral, TypeStack};
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
+use std::process::exit;
+use std::rc::Rc;
 
 #[derive(Debug)]
 struct FnState {
   // fn_name: String, // todo
   locals: BTreeMap<String, i32>,
+  types: Rc<RefCell<TypeStack>>,
 }
 
 #[derive(Debug)]
@@ -30,6 +34,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       previous_token: Token::default(),
       current_state: FnState {
         locals: BTreeMap::new(),
+        types: Rc::new(RefCell::new(TypeStack::new())),
       },
     }
   }
@@ -43,6 +48,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         .unwrap_or(self.current_token.error_code.unwrap().to_info())
         .error_msg
     );
+    exit(-1);
   }
 
   fn advance(&mut self) {
@@ -81,13 +87,24 @@ impl<'a, 'b> Parser<'a, 'b> {
     self.consume(TokenType::NUM);
     AstNode::NumberNode(NumberNode {
       value: self.previous_token.to_int(),
+      ty: RefCell::new(Rc::new(Type::new(TypeLiteral::TYPE_INT))),
     })
   }
 
   fn variable(&mut self) -> AstNode {
+    // todo: move to var declaration
+    self.current_state.types.borrow_mut().insert_type(
+      self.current_token.value().into(),
+      Type::new(TypeLiteral::TYPE_INT),
+    );
     self.advance();
+    let ty = self.current_state.types.borrow_mut().lookup(&self.previous_token.value());
+    if ty.is_none() {
+      self.error(Some(ViError::EP002.to_info()));
+    }
     let ident = AstNode::VarNode(VarNode {
       name: self.previous_token.value().into(),
+      ty: RefCell::new(Rc::new(ty.unwrap())),
     });
     // todo: multiple vars with same name
     if let None = self.current_state.locals.get(self.previous_token.value())
@@ -129,11 +146,10 @@ impl<'a, 'b> Parser<'a, 'b> {
         AstNode::UnaryNode(UnaryNode {
           node: Box::new(node),
           op,
+          ty: RefCell::new(Rc::new(Type::new(TypeLiteral::TYPE_NIL))),
         })
       }
-      _ => {
-        self.primary()
-      }
+      _ => self.primary(),
     }
   }
 
@@ -352,6 +368,8 @@ impl<'a, 'b> Parser<'a, 'b> {
         stack_size: Cell::new(0),
         body: block,
         locals,
+        types: self.current_state.types.clone(),
+        ty: RefCell::new(Rc::new(Type::new(TypeLiteral::TYPE_INT))), // todo: use func signature
       })
     } else {
       panic!("expected BlockStmtNode node")
