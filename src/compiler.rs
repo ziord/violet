@@ -42,6 +42,7 @@ pub struct Compiler<'a> {
   depth: i32,
   gen: GenState,
   tc: TypeCheck<'a>,
+  arg_regs: Vec<&'a str>,
 }
 
 #[macro_export]
@@ -62,6 +63,7 @@ impl<'a> Compiler<'a> {
       depth: 0,
       gen: GenState::default(),
       tc: TypeCheck::new(),
+      arg_regs: vec!["rdi", "rsi", "rdx", "rcx", "r8", "r9"],
     }
   }
 
@@ -431,6 +433,14 @@ impl<'a> Compiler<'a> {
 
   fn c_call(&mut self, node: &AstNode) {
     let node = unbox!(FnCallNode, node);
+    for arg in &node.args {
+      self.c_(arg);
+      self.push_reg();
+    }
+    // store args in the six registers (reversed)
+    for i in (0..node.args.len()).rev() {
+      self.pop_reg(self.arg_regs[i]);
+    }
     println!("  mov $0, %rax");
     // info: clang prepends "_" to function names
     println!("  call _{}", node.name);

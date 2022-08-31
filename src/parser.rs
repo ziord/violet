@@ -122,7 +122,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         if i > 0 {
           self.consume(TokenType::COMMA);
         }
-        args.push(self.expr());
+        args.push(self.assign());
         i += 1;
       }
     }

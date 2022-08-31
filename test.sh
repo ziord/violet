@@ -2,6 +2,11 @@
 cat <<EOF | gcc -xc -c -o tmp/out2.o -
 int ret3() { return 3; }
 int ret5() { return 5; }
+int add(int x, int y) { return x+y; }
+int sub(int x, int y) { return x-y; }
+int add6(int a, int b, int c, int d, int e, int f) {
+  return a+b+c+d+e+f;
+}
 EOF
 
 assert() {
@@ -83,4 +88,9 @@ assert 5 '56.c'
 assert 5 '57.c'
 assert 3 '58.c'
 assert 5 '59.c'
+assert 8 '60.c'
+assert 2 '61.c'
+assert 21 '62.c'
+assert 66 '63.c'
+assert 136 '64.c'
 echo OK
