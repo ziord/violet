@@ -1,11 +1,12 @@
 #[derive(Debug, Copy, Clone)]
 pub enum ViError {
+  E0000, // placeholder
   EL001, // unrecognized token
   EP001, // mismatch token
   EP002, // missing type
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ErrorInfo<'a> {
   pub error_code: ViError,
   pub error_msg: &'a str,
@@ -30,13 +31,17 @@ macro_rules! info {
 impl ViError {
   pub fn to_info(&self) -> ErrorInfo {
     match self {
+      ViError::E0000 => info!(self, "", ""),
       ViError::EL001 => info!(
         self,
         "Unrecognized token",
         "The token found at this context is illegal/unknown."
       ),
       ViError::EP001 => info!(self, "Token mismatch", ""),
-      ViError::EP002 => info!(self, "Missing type", "Variable referenced before declaration"),
+      ViError::EP002 => info!(
+        self,
+        "Missing type", "Variable referenced before declaration"
+      ),
     }
   }
 }

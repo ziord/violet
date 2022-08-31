@@ -20,6 +20,7 @@ pub enum TokenType {
   GRT_EQUAL,     // >=
   EQUAL,         // =
   SEMI_COLON,    // ;
+  COMMA,         // ,
   IDENT,         // id
   LEFT_CURLY,    // {
   RIGHT_CURLY,   // }
@@ -29,6 +30,7 @@ pub enum TokenType {
   ELSE,          // else
   FOR,           // for
   WHILE,         // while
+  INT,           // int
   BOF,           // |-
   EOF,           // -|
   ERROR,
@@ -81,6 +83,7 @@ impl Display for TokenType {
       TokenType::EOF => write!(f, "TOK<EOF>"),
       TokenType::ERROR => write!(f, "TOK<ERROR>"),
       TokenType::STAR => write!(f, "TOK<STAR>"),
+      TokenType::COMMA => write!(f, "TOK<COMMA>"),
       TokenType::FWD_SLASH => write!(f, "TOK<FWD-SLASH>"),
       TokenType::LEFT_BRACKET => write!(f, "TOK<LEFT-BRACKET>"),
       TokenType::RIGHT_BRACKET => write!(f, "TOK<RIGHT-BRACKET>"),
@@ -99,6 +102,7 @@ impl Display for TokenType {
       TokenType::ELSE => write!(f, "TOK<ELSE>"),
       TokenType::FOR => write!(f, "TOK<FOR>"),
       TokenType::WHILE => write!(f, "TOK<WHILE>"),
+      TokenType::INT => write!(f, "TOK<INT>"),
       TokenType::LEFT_CURLY => write!(f, "TOK<LEFT-CURLY>"),
       TokenType::RIGHT_CURLY => write!(f, "TOK<RIGHT-CURLY>"),
     }
@@ -189,7 +193,7 @@ impl<'a> Display for Token<'a> {
   fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
     write!(
       f,
-      "Token(value={}, type={}, column={}, line={})",
+      "Token(value='{}', type={}, column={}, line={})",
       self.value, self.t_type, self.column, self.line
     )
   }
@@ -209,6 +213,7 @@ impl<'a, 'b> Lexer<'a, 'b> {
       ("else", TokenType::ELSE),
       ("for", TokenType::FOR),
       ("while", TokenType::WHILE),
+      ("int", TokenType::INT),
     ];
     Self {
       src,
@@ -333,6 +338,7 @@ impl<'a, 'b> Lexer<'a, 'b> {
       return self.lex_ident();
     }
     match ch {
+      ',' => self.create_token(TokenType::COMMA),
       '+' => self.create_token(TokenType::PLUS),
       '-' => self.create_token(TokenType::MINUS),
       '*' => self.create_token(TokenType::STAR),

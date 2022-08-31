@@ -1,5 +1,6 @@
 use crate::ast::{
-  AstNode, BinaryNode, BlockStmtNode, FunctionNode, VarNode,
+  AstNode, BinaryNode, BlockStmtNode, FunctionNode, VarDeclListNode,
+  VarDeclNode, VarNode,
 };
 use crate::lexer::OpType;
 use crate::parser::Parser;
@@ -413,6 +414,19 @@ impl<'a> Compiler<'a> {
     self.emit_label(&end_label);
   }
 
+  fn c_var_decl(&mut self, node: &VarDeclNode) {
+    if let Some(val) = &node.value {
+      self.c_(val);
+      println!("  mov %rax, {}", self.get_address(&node.var));
+    }
+  }
+
+  fn c_var_decl_list(&mut self, node: &VarDeclListNode) {
+    for decl in &node.decls {
+      self.c_var_decl(decl);
+    }
+  }
+
   fn c_function(&mut self, node: &AstNode) {
     let mut func = unbox!(FunctionNode, node);
     self.store_lvar_offsets(&mut func);
@@ -435,6 +449,8 @@ impl<'a> Compiler<'a> {
       AstNode::IfElseNode(_) => self.c_if_else(node),
       AstNode::ForLoopNode(_) => self.c_for_loop(node),
       AstNode::WhileLoopNode(_) => self.c_while_loop(node),
+      AstNode::VarDeclNode(n) => self.c_var_decl(n),
+      AstNode::VarDeclListNode(n) => self.c_var_decl_list(n),
     }
   }
 
@@ -446,10 +462,9 @@ impl<'a> Compiler<'a> {
     let root = res.unwrap();
     let mut tp = TypeProp::new();
     tp.propagate_types(&root);
-    // todo: enable
-    // if let Err(msg) = self.tc.typecheck(&root) {
-    //   return Err(msg);
-    // }
+    if let Err(msg) = self.tc.typecheck(&root) {
+      return Err(msg);
+    }
     println!("  .global _main");
     println!("_main:");
     self.c_(&root);

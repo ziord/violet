@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, BlockStmtNode};
+use crate::ast::{AstNode, BlockStmtNode, VarDeclNode, VarNode};
 use crate::lexer::OpType;
 use crate::unbox;
 use std::cell::{Cell, RefCell};
@@ -155,26 +155,18 @@ impl TypeProp {
       OpType::ADDR => {
         let ty = self.p_(&*node.node);
         let node_ty = node.ty.borrow_mut();
-        if node_ty.subtype.borrow().is_none() {
-          node_ty.subtype.borrow_mut().replace(RefCell::new(ty));
-        } else {
-          // node_ty.subtype.borrow().clone().unwrap().replace(ty);
-          node_ty.subtype.replace(Some(RefCell::new(ty)));
-        }
+        node_ty.subtype.replace(Some(RefCell::new(ty)));
         node_ty.kind.set(TypeLiteral::TYPE_PTR);
         node_ty.clone()
       }
       OpType::DEREF => {
         let ty = self.p_(&node.node);
-        let node_ty = node.ty.borrow();
         if ty.kind.get() == TypeLiteral::TYPE_PTR {
-          node_ty
-            .kind
-            .set(ty.subtype.borrow().clone().unwrap().borrow().kind.get());
+          node.ty.replace(ty.subtype.borrow_mut().clone().unwrap().into_inner());
         } else {
-          node_ty.kind.set(TypeLiteral::TYPE_INT); // todo: other literal types
+          panic!("Expected pointer type as subtype for dereference");
         }
-        node_ty.clone()
+        node.ty.borrow().clone()
       }
       _ => panic!("unknown unary operator '{:?}'", node.op),
     }
@@ -182,8 +174,63 @@ impl TypeProp {
 
   fn p_binary(&mut self, node: &AstNode) -> Rc<Type> {
     let node = unbox!(BinaryNode, node);
-    self.p_(&*node.left_node);
-    self.p_(&node.right_node)
+    let left_ty = self.p_(&*node.left_node);
+    let right_ty = self.p_(&node.right_node);
+    // need to use op and types of left and right node.
+    match node.op {
+      OpType::PLUS | OpType::MINUS => {
+        if left_ty.kind.get() == TypeLiteral::TYPE_INT {
+          // int, int
+          if right_ty.kind.get() == TypeLiteral::TYPE_INT {
+            return left_ty;
+          }
+          // int, ptr
+          else if right_ty.kind.get() == TypeLiteral::TYPE_PTR {
+            if node.op != OpType::MINUS {
+              // int - ptr -> err
+              return right_ty;
+            }
+          }
+        } else if left_ty.kind.get() == TypeLiteral::TYPE_PTR {
+          // ptr, int
+          if right_ty.kind.get() == TypeLiteral::TYPE_INT {
+            return left_ty;
+          }
+          // ptr, ptr
+          else if right_ty.kind.get() == TypeLiteral::TYPE_PTR {
+            return Rc::new(Type::new(TypeLiteral::TYPE_INT));
+          }
+        }
+      }
+      OpType::DIV => {
+        // int, int
+        if left_ty.kind == right_ty.kind
+          && left_ty.kind.get() == TypeLiteral::TYPE_INT
+        {
+          return left_ty;
+        }
+      }
+      OpType::MUL => {
+        // int, int
+        if left_ty.kind == right_ty.kind
+          && left_ty.kind.get() == TypeLiteral::TYPE_INT
+        {
+          return left_ty;
+        }
+      }
+      OpType::LEQ
+      | OpType::GEQ
+      | OpType::LT
+      | OpType::GT
+      | OpType::EQQ
+      | OpType::NEQ => {
+        if left_ty.equals(&right_ty) {
+          return left_ty;
+        }
+      }
+      _ => unreachable!(),
+    }
+    Rc::new(Type::new(TypeLiteral::TYPE_NIL))
   }
 
   fn p_block(&mut self, node: &BlockStmtNode) -> Rc<Type> {
@@ -233,6 +280,21 @@ impl TypeProp {
     self.p_(&unbox!(ExprStmtNode, node).node)
   }
 
+  fn p_var_decl(&mut self, node: &VarDeclNode) -> Rc<Type> {
+    if let Some(val) = &node.value {
+      self.p_(&*val);
+    }
+    Rc::new(Type::new(TypeLiteral::TYPE_NIL))
+  }
+
+  fn p_var_decl_list(&mut self, node: &AstNode) -> Rc<Type> {
+    let node = unbox!(VarDeclListNode, node);
+    for decl in &node.decls {
+      self.p_var_decl(decl);
+    }
+    Rc::new(Type::new(TypeLiteral::TYPE_NIL))
+  }
+
   fn p_(&mut self, node: &AstNode) -> Rc<Type> {
     match node {
       AstNode::NumberNode(_) => self.p_num(node),
@@ -247,6 +309,8 @@ impl TypeProp {
       AstNode::IfElseNode(_) => self.p_if_else(node),
       AstNode::ForLoopNode(_) => self.p_for_loop(node),
       AstNode::WhileLoopNode(_) => self.p_while_loop(node),
+      AstNode::VarDeclNode(n) => self.p_var_decl(n),
+      AstNode::VarDeclListNode(_) => self.p_var_decl_list(node),
     }
   }
 
@@ -270,11 +334,11 @@ impl<'a> TypeCheck<'a> {
     Ok(unbox!(NumberNode, node).ty.borrow().clone())
   }
 
-  fn tc_var(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
+  fn tc_var(&mut self, node: &VarNode) -> Result<Rc<Type>, &'a str> {
     if self.at_error {
       return Err(self.error_msg.unwrap());
     }
-    Ok(unbox!(VarNode, node).ty.borrow().clone())
+    Ok(node.ty.borrow().clone())
   }
 
   fn tc_binary(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
@@ -301,7 +365,8 @@ impl<'a> TypeCheck<'a> {
           }
           // int, ptr
           else if right_ty.kind.get() == TypeLiteral::TYPE_PTR {
-            if node.op != OpType::MINUS { // int - ptr -> err
+            if node.op != OpType::MINUS {
+              // int - ptr -> err
               return Ok(right_ty);
             }
           }
@@ -367,9 +432,7 @@ impl<'a> TypeCheck<'a> {
         }
       }
       OpType::ADDR => {
-        if ty.kind.get() == TypeLiteral::TYPE_INT {
-          return Ok(node_ty);
-        }
+        return Ok(node_ty);
       }
       OpType::DEREF => {
         if ty.kind.get() == TypeLiteral::TYPE_PTR {
@@ -479,7 +542,7 @@ impl<'a> TypeCheck<'a> {
       return Err(self.error_msg.unwrap());
     }
     let node = unbox!(WhileLoopNode, node);
-    let mut ty = self.tc(&node.condition);
+    let ty = self.tc(&node.condition);
     if ty.is_err() {
       return ty;
     }
@@ -497,6 +560,53 @@ impl<'a> TypeCheck<'a> {
     Ok(Rc::new(Type::new(TypeLiteral::TYPE_NIL)))
   }
 
+  fn tc_var_decl(
+    &mut self,
+    node: &VarDeclNode,
+  ) -> Result<Rc<Type>, &'a str> {
+    if self.at_error {
+      return Err(self.error_msg.unwrap());
+    }
+    let left_ty = self.tc_var(&node.var);
+    if left_ty.is_err() {
+      return left_ty;
+    }
+    if let Some(value) = &node.value {
+      let right_ty = self.tc(&*value);
+      if right_ty.is_err() {
+        return right_ty;
+      }
+      let left_ty = left_ty.unwrap();
+      let right_ty = right_ty.unwrap();
+      if !left_ty.equals(&right_ty) {
+        // todo: better error handling
+        eprintln!(
+          "Type mismatch:\n{:#?} is not equal to {:#?}",
+          left_ty, right_ty
+        );
+        self.error_msg = Some("Type mismatch");
+        return Err(self.error_msg.unwrap());
+      }
+      return Ok(left_ty);
+    }
+    left_ty
+  }
+
+  fn tc_var_decl_list(
+    &mut self,
+    node: &AstNode,
+  ) -> Result<Rc<Type>, &'a str> {
+    let node = unbox!(VarDeclListNode, node);
+    let mut res: Result<Rc<Type>, &'a str>;
+    for decl in &node.decls {
+      res = self.tc_var_decl(decl);
+      if res.is_err() {
+        return res;
+      }
+    }
+    Ok(Rc::new(Type::new(TypeLiteral::TYPE_NIL)))
+  }
+
   pub(crate) fn tc(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
     if self.at_error {
       return Err(self.error_msg.unwrap());
@@ -505,7 +615,7 @@ impl<'a> TypeCheck<'a> {
       AstNode::NumberNode(_) => self.tc_num(node),
       AstNode::BinaryNode(_) => self.tc_binary(node),
       AstNode::UnaryNode(_) => self.tc_unary(node),
-      AstNode::VarNode(_) => self.tc_var(node),
+      AstNode::VarNode(nd) => self.tc_var(nd),
       AstNode::AssignNode(_) => self.tc_assign(node),
       AstNode::ReturnNode(_) => self.tc_return(node),
       AstNode::ExprStmtNode(_) => self.tc_expr_stmt(node),
@@ -514,6 +624,8 @@ impl<'a> TypeCheck<'a> {
       AstNode::IfElseNode(_) => self.tc_if_else(node),
       AstNode::ForLoopNode(_) => self.tc_for_loop(node),
       AstNode::WhileLoopNode(_) => self.tc_while_loop(node),
+      AstNode::VarDeclNode(nd) => self.tc_var_decl(nd),
+      AstNode::VarDeclListNode(_) => self.tc_var_decl_list(node),
     }
   }
 

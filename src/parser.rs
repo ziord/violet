@@ -1,7 +1,7 @@
 use crate::ast::{
   AssignNode, AstNode, BinaryNode, BlockStmtNode, ExprStmtNode,
   ForLoopNode, FunctionNode, IfElseNode, NumberNode, ReturnNode, UnaryNode,
-  VarNode, WhileLoopNode,
+  VarDeclListNode, VarDeclNode, VarNode, WhileLoopNode,
 };
 use crate::errors::{ErrorInfo, ViError};
 use crate::lexer::{Lexer, OpType, Token, TokenType};
@@ -39,13 +39,19 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
   }
 
-  fn error(&self, code: Option<ErrorInfo>) {
+  fn error(&self, code: Option<ErrorInfo<'a>>) {
     // todo
     eprintln!(
       "Error at {} - {}",
       self.current_token,
       code
-        .unwrap_or(self.current_token.error_code.unwrap().to_info())
+        .unwrap_or(
+          self
+            .current_token
+            .error_code
+            .unwrap_or(ViError::E0000)
+            .to_info()
+        )
         .error_msg
     );
     exit(-1);
@@ -92,29 +98,19 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn variable(&mut self) -> AstNode {
-    // todo: move to var declaration
-    self.current_state.types.borrow_mut().insert_type(
-      self.current_token.value().into(),
-      Type::new(TypeLiteral::TYPE_INT),
-    );
-    self.advance();
-    let ty = self.current_state.types.borrow_mut().lookup(&self.previous_token.value());
+    let ty = self
+      .current_state
+      .types
+      .borrow_mut()
+      .lookup(&self.current_token.value());
     if ty.is_none() {
       self.error(Some(ViError::EP002.to_info()));
     }
-    let ident = AstNode::VarNode(VarNode {
+    self.advance();
+    AstNode::VarNode(VarNode {
       name: self.previous_token.value().into(),
       ty: RefCell::new(Rc::new(ty.unwrap())),
-    });
-    // todo: multiple vars with same name
-    if let None = self.current_state.locals.get(self.previous_token.value())
-    {
-      self
-        .current_state
-        .locals
-        .insert(self.previous_token.value().into(), 1);
-    }
-    ident
+    })
   }
 
   fn primary(&mut self) -> AstNode {
@@ -260,10 +256,84 @@ impl<'a, 'b> Parser<'a, 'b> {
     })
   }
 
+  fn pointer_to(&self, sub: Type) -> Type {
+    let ty = Type::new(TypeLiteral::TYPE_PTR);
+    ty.subtype.borrow_mut().replace(RefCell::new(Rc::new(sub)));
+    ty
+  }
+
+  fn declspec(&mut self) -> Type {
+    // declspec = "int"
+    self.consume(TokenType::INT);
+    Type::new(TypeLiteral::TYPE_INT)
+  }
+
+  fn declarator(&mut self, ty: &Type) -> Type {
+    // declarator = "*"* ident
+    let mut ty = ty.clone();
+    while self.match_tok(TokenType::STAR) {
+      ty = self.pointer_to(ty);
+    }
+    self.consume(TokenType::IDENT);
+    ty
+  }
+
+  fn declaration(&mut self) -> AstNode {
+    // declaration = declspec (declarator ("=" expr)? ("," declarator ("=" expr)?)*)? ";"
+    let base_ty = self.declspec();
+    let mut decls = vec![];
+    let mut i = 0;
+    while !self.match_tok(TokenType::SEMI_COLON) {
+      if i > 0 {
+        self.consume(TokenType::COMMA);
+      }
+      let ty = self.declarator(&base_ty);
+      let name: String = self.previous_token.value().into();
+      // insert type
+      self
+        .current_state
+        .types
+        .borrow_mut()
+        .insert_type(name.clone(), ty.clone());
+      // todo: multiple vars with same name
+      // insert local
+      if let None = self.current_state.locals.get(self.previous_token.value())
+      {
+        self
+          .current_state
+          .locals
+          .insert(name.clone(), 1);
+      }
+      let var = VarNode {
+        name,
+        ty: RefCell::new(Rc::new(ty)),
+      };
+      if !self.match_tok(TokenType::EQUAL) {
+        decls.push(VarDeclNode { var, value: None });
+        continue;
+      }
+      let value = self.assign();
+      decls.push(VarDeclNode {
+        var,
+        value: Some(Box::new(value)),
+      });
+      i += 1;
+    }
+    if decls.len() == 1 {
+      return AstNode::VarDeclNode(decls.pop().unwrap());
+    }
+    AstNode::VarDeclListNode(VarDeclListNode { decls })
+  }
+
   fn compound_stmt(&mut self) -> AstNode {
+    // compound-stmt = (declaration | stmt)* "}"
     let mut block = BlockStmtNode { stmts: vec![] };
     while !self.match_tok(TokenType::RIGHT_CURLY) {
-      block.stmts.push(self.stmt());
+      if self.current_token.equal(TokenType::INT) {
+        block.stmts.push(self.declaration());
+      } else {
+        block.stmts.push(self.stmt());
+      }
     }
     AstNode::BlockStmtNode(block)
   }
