@@ -141,7 +141,9 @@ impl<'a> Compiler<'a> {
     println!("  push %rbp");
     println!("  mov %rsp, %rbp");
     // reserve space for locals
-    println!("  sub ${}, %rsp", func.stack_size.get());
+    if func.stack_size.get() > 0 {
+      println!("  sub ${}, %rsp", func.stack_size.get());
+    }
     self.gen.stack_size = func.stack_size.get();
     self.emit_comment("(end prologue)");
   }
@@ -427,6 +429,13 @@ impl<'a> Compiler<'a> {
     }
   }
 
+  fn c_call(&mut self, node: &AstNode) {
+    let node = unbox!(FnCallNode, node);
+    println!("  mov $0, %rax");
+    // info: clang prepends "_" to function names
+    println!("  call _{}", node.name);
+  }
+
   fn c_function(&mut self, node: &AstNode) {
     let mut func = unbox!(FunctionNode, node);
     self.store_lvar_offsets(&mut func);
@@ -451,6 +460,7 @@ impl<'a> Compiler<'a> {
       AstNode::WhileLoopNode(_) => self.c_while_loop(node),
       AstNode::VarDeclNode(n) => self.c_var_decl(n),
       AstNode::VarDeclListNode(n) => self.c_var_decl_list(n),
+      AstNode::FnCallNode(_) => self.c_call(node),
     }
   }
 

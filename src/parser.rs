@@ -1,5 +1,5 @@
 use crate::ast::{
-  AssignNode, AstNode, BinaryNode, BlockStmtNode, ExprStmtNode,
+  AssignNode, AstNode, BinaryNode, BlockStmtNode, ExprStmtNode, FnCallNode,
   ForLoopNode, FunctionNode, IfElseNode, NumberNode, ReturnNode, UnaryNode,
   VarDeclListNode, VarDeclNode, VarNode, WhileLoopNode,
 };
@@ -102,25 +102,48 @@ impl<'a, 'b> Parser<'a, 'b> {
       .current_state
       .types
       .borrow_mut()
-      .lookup(&self.current_token.value());
+      .lookup(&self.previous_token.value());
     if ty.is_none() {
       self.error(Some(ViError::EP002.to_info()));
     }
-    self.advance();
     AstNode::VarNode(VarNode {
       name: self.previous_token.value().into(),
       ty: RefCell::new(Rc::new(ty.unwrap())),
     })
   }
 
+  fn call(&mut self, name: &str) -> AstNode {
+    let name: String = name.into();
+    // args
+    let mut args: Vec<AstNode> = vec![];
+    if !self.match_tok(TokenType::RIGHT_BRACKET) {
+      let mut i = 0;
+      while !self.match_tok(TokenType::RIGHT_BRACKET) {
+        if i > 0 {
+          self.consume(TokenType::COMMA);
+        }
+        args.push(self.expr());
+        i += 1;
+      }
+    }
+    AstNode::FnCallNode(FnCallNode { name, args })
+  }
+
   fn primary(&mut self) -> AstNode {
-    // primary = "(" expr ")" | ident | num
+    // primary = "(" expr ")" | ident args? | num
+    // args = "(" ")"
     if self.match_tok(TokenType::LEFT_BRACKET) {
       let node = self.expr();
       self.consume(TokenType::RIGHT_BRACKET);
       return node;
     } else if self.current_token.equal(TokenType::IDENT) {
-      self.variable()
+      let name = self.current_token.value();
+      self.advance();
+      if self.match_tok(TokenType::LEFT_BRACKET) {
+        self.call(name)
+      } else {
+        self.variable()
+      }
     } else {
       self.num()
     }
@@ -297,12 +320,10 @@ impl<'a, 'b> Parser<'a, 'b> {
         .insert_type(name.clone(), ty.clone());
       // todo: multiple vars with same name
       // insert local
-      if let None = self.current_state.locals.get(self.previous_token.value())
+      if let None =
+        self.current_state.locals.get(self.previous_token.value())
       {
-        self
-          .current_state
-          .locals
-          .insert(name.clone(), 1);
+        self.current_state.locals.insert(name.clone(), 1);
       }
       let var = VarNode {
         name,

@@ -84,12 +84,18 @@ pub struct WhileLoopNode {
 #[derive(Debug)]
 pub struct VarDeclNode {
   pub(crate) var: VarNode,
-  pub(crate) value: Option<Box<AstNode>>
+  pub(crate) value: Option<Box<AstNode>>,
 }
 
 #[derive(Debug)]
 pub struct VarDeclListNode {
-  pub(crate) decls: Vec<VarDeclNode>
+  pub(crate) decls: Vec<VarDeclNode>,
+}
+
+#[derive(Debug)]
+pub struct FnCallNode {
+  pub(crate) name: String,
+  pub(crate) args: Vec<AstNode>,
 }
 
 #[derive(Debug)]
@@ -108,4 +114,5 @@ pub enum AstNode {
   WhileLoopNode(WhileLoopNode),
   VarDeclNode(VarDeclNode),
   VarDeclListNode(VarDeclListNode),
+  FnCallNode(FnCallNode),
 }

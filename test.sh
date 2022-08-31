@@ -1,10 +1,15 @@
 #!/bin/zsh
+cat <<EOF | gcc -xc -c -o tmp/out2.o -
+int ret3() { return 3; }
+int ret5() { return 5; }
+EOF
+
 assert() {
   expected="$1"
   input="samples/$2"
 
   ./target/debug/violet "$input" > tmp/out.asm || exit
-  gcc tmp/out.asm -o tmp/out
+  gcc tmp/out.asm tmp/out2.o -o tmp/out
   ./tmp/out
   actual="$?"
 
@@ -76,4 +81,6 @@ assert 7 '54.c'
 assert 7 '55.c'
 assert 5 '56.c'
 assert 5 '57.c'
+assert 3 '58.c'
+assert 5 '59.c'
 echo OK

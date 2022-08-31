@@ -162,7 +162,9 @@ impl TypeProp {
       OpType::DEREF => {
         let ty = self.p_(&node.node);
         if ty.kind.get() == TypeLiteral::TYPE_PTR {
-          node.ty.replace(ty.subtype.borrow_mut().clone().unwrap().into_inner());
+          node
+            .ty
+            .replace(ty.subtype.borrow_mut().clone().unwrap().into_inner());
         } else {
           panic!("Expected pointer type as subtype for dereference");
         }
@@ -295,6 +297,15 @@ impl TypeProp {
     Rc::new(Type::new(TypeLiteral::TYPE_NIL))
   }
 
+  fn p_call(&mut self, node: &AstNode) -> Rc<Type> {
+    // todo!("need to use the function's signature for the return value")
+    let node = unbox!(FnCallNode, node);
+    for arg in &node.args {
+      self.p_(arg);
+    }
+    Rc::new(Type::new(TypeLiteral::TYPE_INT))
+  }
+
   fn p_(&mut self, node: &AstNode) -> Rc<Type> {
     match node {
       AstNode::NumberNode(_) => self.p_num(node),
@@ -311,6 +322,7 @@ impl TypeProp {
       AstNode::WhileLoopNode(_) => self.p_while_loop(node),
       AstNode::VarDeclNode(n) => self.p_var_decl(n),
       AstNode::VarDeclListNode(_) => self.p_var_decl_list(node),
+      AstNode::FnCallNode(_) => self.p_call(node),
     }
   }
 
@@ -607,6 +619,15 @@ impl<'a> TypeCheck<'a> {
     Ok(Rc::new(Type::new(TypeLiteral::TYPE_NIL)))
   }
 
+  fn tc_call(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
+    // todo!("need to type-check using the function's signature")
+    // let node = unbox!(FnCallNode, node);
+    // for arg in &node.args {
+    //   let mut ty = self.tc(arg);
+    // }
+    Ok(Rc::new(Type::new(TypeLiteral::TYPE_INT)))
+  }
+
   pub(crate) fn tc(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
     if self.at_error {
       return Err(self.error_msg.unwrap());
@@ -626,6 +647,7 @@ impl<'a> TypeCheck<'a> {
       AstNode::WhileLoopNode(_) => self.tc_while_loop(node),
       AstNode::VarDeclNode(nd) => self.tc_var_decl(nd),
       AstNode::VarDeclListNode(_) => self.tc_var_decl_list(node),
+      AstNode::FnCallNode(_) => self.tc_call(node),
     }
   }
 
