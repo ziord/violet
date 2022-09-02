@@ -94,4 +94,7 @@ assert 21 '62.c'
 assert 66 '63.c'
 assert 136 '64.c'
 assert 32 '65.c'
+assert 7 '66.c'
+assert 1 '67.c'
+assert 55 '68.c'
 echo OK

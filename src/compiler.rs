@@ -121,7 +121,7 @@ impl<'a> Compiler<'a> {
       .set(self.align_to(func.locals.len() as i32, 16));
   }
 
-  fn get_address(&mut self, name: &str) -> String {
+  fn get_address(&self, name: &str) -> String {
     // get the offset from rbp
     let offset = self.gen.get_offset(&name);
     format!("{offset}(%rbp)")
@@ -475,6 +475,14 @@ impl<'a> Compiler<'a> {
     self.gen.set_current_fn(&func.name);
     self.store_lvar_offsets(&mut func);
     self.emit_prologue(func);
+    // params
+    for i in 0..func.params.len() {
+      println!(
+        "  mov %{}, {}",
+        self.arg_regs[i],
+        self.get_address(&func.params[i].name)
+      );
+    }
     self.c_stmt_list(&func.body);
     self.emit_epilogue();
   }

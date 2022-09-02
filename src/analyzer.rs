@@ -237,6 +237,9 @@ impl<'a> SemAnalyzer<'a> {
       .unwrap()
       .new_func_tab(&node.name, &node.ty.borrow());
     self.current = node.name.clone();
+    for param in &node.params {
+      self.sem_var_decl(param);
+    }
     self.sem_block(&node.body);
   }
 

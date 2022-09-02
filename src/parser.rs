@@ -6,7 +6,7 @@ use crate::ast::{
 };
 use crate::errors::{ErrorInfo, ViError};
 use crate::lexer::{Lexer, OpType, Token, TokenType};
-use crate::types::{Type, TypeLiteral};
+use crate::types::{TParam, Type, TypeLiteral};
 use std::cell::{Cell, RefCell};
 use std::process::exit;
 use std::rc::Rc;
@@ -279,28 +279,63 @@ impl<'a, 'b> Parser<'a, 'b> {
     Type::new(TypeLiteral::TYPE_INT)
   }
 
-  fn func_type(&mut self, ty: &Type) -> Type {
-    let func_ty = Type::new(TypeLiteral::TYPE_FUNC);
+  fn func_type(
+    &mut self,
+    ty: &Type,
+    params: Vec<VarDeclNode>,
+  ) -> (Type, Vec<VarDeclNode>) {
+    let mut func_ty = Type::new(TypeLiteral::TYPE_FUNC);
     // return type
     func_ty
       .subtype
       .borrow_mut()
       .replace(RefCell::new(Rc::new(ty.clone())));
-    func_ty
+    if params.len() > 0 {
+      let mut params_ty = vec![];
+      for param in &params {
+        params_ty.push(TParam {
+          name: param.name.clone(),
+          ty: param.ty.borrow().clone(),
+        });
+      }
+      func_ty.params.replace(RefCell::new(params_ty));
+    }
+    (func_ty, params)
   }
 
-  fn type_suffix(&mut self, ty: &Type) -> Type {
-    // type-suffix = ("(" func-params)?
+  fn type_suffix(&mut self, ty: &Type) -> (Type, Vec<VarDeclNode>) {
+    // type-suffix = ("(" func-params? ")")?
+    // func-params = param ("," param)*
+    // param       = declspec declarator
     if self.match_tok(TokenType::LEFT_BRACKET) {
-      // todo: func param types should be sorted out here
-      self.consume(TokenType::RIGHT_BRACKET);
-      self.func_type(ty)
+      let mut i = 0;
+      let mut params = vec![];
+      while !self.match_tok(TokenType::RIGHT_BRACKET) {
+        // func-params
+        if i > 0 {
+          self.consume(TokenType::COMMA);
+        }
+        let base_ty = self.declspec();
+        let ((ty, _), name) = self.declarator(&base_ty);
+        // make parameters locally scoped to the function
+        self.locals.push(name.clone());
+        params.push(VarDeclNode {
+          ty: RefCell::new(Rc::new(ty)),
+          name,
+          value: None,
+        });
+        i += 1;
+      }
+      self.func_type(ty, params)
     } else {
-      ty.clone()
+      (ty.clone(), vec![])
     }
   }
 
-  fn declarator(&mut self, ty: &Type) -> (Type, String) {
+  fn declarator(
+    &mut self,
+    ty: &Type,
+  ) -> ((Type, Vec<VarDeclNode>), String) {
     // declarator = "*"* ident type-suffix
     let mut ty = ty.clone();
     while self.match_tok(TokenType::STAR) {
@@ -309,8 +344,8 @@ impl<'a, 'b> Parser<'a, 'b> {
     self.consume(TokenType::IDENT);
     let name = self.previous_token.value().into();
     // = | ; -> var decl or ( -> func
-    ty = self.type_suffix(&ty);
-    (ty, name)
+    let ty_params = self.type_suffix(&ty);
+    (ty_params, name)
   }
 
   fn declaration(&mut self) -> AstNode {
@@ -322,7 +357,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       if i > 0 {
         self.consume(TokenType::COMMA);
       }
-      let (ty, name) = self.declarator(&base_ty);
+      let ((ty, _), name) = self.declarator(&base_ty);
       let ty = RefCell::new(Rc::new(ty));
       // insert local
       self.locals.push(name.clone());
@@ -449,10 +484,10 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn function(&mut self) -> AstNode {
-    let ty = self.declspec();
-    let (ty, name) = self.declarator(&ty);
     // create new fn state
     self.enter();
+    let ty = self.declspec();
+    let ((ty, params), name) = self.declarator(&ty);
     self.consume(TokenType::LEFT_CURLY);
     let list = self.compound_stmt();
     // leave fn state
@@ -460,6 +495,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     if let AstNode::BlockStmtNode(block) = list {
       AstNode::FunctionNode(FunctionNode {
         name,
+        params,
         stack_size: Cell::new(0),
         body: block,
         locals: std::mem::take(&mut self.locals),

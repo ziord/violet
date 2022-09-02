@@ -20,8 +20,8 @@ pub enum TypeLiteral {
 
 #[derive(Debug, Clone)]
 pub struct TParam {
-  name: String,
-  type_: Type,
+  pub(crate) name: String,
+  pub(crate) ty: Rc<Type>,
 }
 
 #[derive(Debug, Clone)]
@@ -77,7 +77,7 @@ impl Type {
       let mut sub_params_2_iter = sub_params_2.iter();
       for param in sub_params_1.borrow().iter() {
         if let Some(p) = sub_params_2_iter.next() {
-          if param.name != p.name || !param.type_.equals(&p.type_) {
+          if param.name != p.name || !param.ty.equals(&p.ty) {
             return false;
           }
         } else {
@@ -431,7 +431,7 @@ impl<'a> TypeCheck<'a> {
     for arg in &node.args {
       let exp_ty = param_types.next();
       if let Ok(got_ty) = self.tc(arg) {
-        if !exp_ty.as_ref().unwrap().type_.equals(&got_ty) {
+        if !exp_ty.as_ref().unwrap().ty.equals(&got_ty) {
           eprintln!(
             "Type error: Expected type {:#?}, bot got type {:#?}",
             exp_ty, got_ty
