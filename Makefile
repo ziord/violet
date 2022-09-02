@@ -12,4 +12,7 @@ clean:
 	rm -r tmp
 	rm *.asm *.o tmp*
 
-.PHONY: test clean
+fmt:
+	cargo fmt
+
+.PHONY: test clean fmt

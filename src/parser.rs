@@ -1,29 +1,22 @@
 use crate::ast::{
   AssignNode, AstNode, BinaryNode, BlockStmtNode, ExprStmtNode, FnCallNode,
-  ForLoopNode, FunctionNode, IfElseNode, NumberNode, ReturnNode, UnaryNode,
-  VarDeclListNode, VarDeclNode, VarNode, WhileLoopNode,
+  ForLoopNode, FunctionNode, IfElseNode, NumberNode, ProgramNode,
+  ReturnNode, UnaryNode, VarDeclListNode, VarDeclNode, VarNode,
+  WhileLoopNode,
 };
 use crate::errors::{ErrorInfo, ViError};
 use crate::lexer::{Lexer, OpType, Token, TokenType};
-use crate::types::{Type, TypeLiteral, TypeStack};
+use crate::types::{Type, TypeLiteral};
 use std::cell::{Cell, RefCell};
-use std::collections::BTreeMap;
 use std::process::exit;
 use std::rc::Rc;
-
-#[derive(Debug)]
-struct FnState {
-  // fn_name: String, // todo
-  locals: BTreeMap<String, i32>,
-  types: Rc<RefCell<TypeStack>>,
-}
 
 #[derive(Debug)]
 pub(crate) struct Parser<'a, 'b> {
   lexer: Lexer<'a, 'b>,
   current_token: Token<'a>,
   previous_token: Token<'a>,
-  current_state: FnState,
+  locals: Vec<String>,
 }
 
 impl<'a, 'b> Parser<'a, 'b> {
@@ -32,10 +25,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       lexer: Lexer::new(src),
       current_token: Token::default(),
       previous_token: Token::default(),
-      current_state: FnState {
-        locals: BTreeMap::new(),
-        types: Rc::new(RefCell::new(TypeStack::new())),
-      },
+      locals: vec![],
     }
   }
 
@@ -55,6 +45,14 @@ impl<'a, 'b> Parser<'a, 'b> {
         .error_msg
     );
     exit(-1);
+  }
+
+  fn enter(&mut self) {
+    self.locals.clear();
+  }
+
+  fn leave(&mut self, _fn_name: &String) {
+    // todo
   }
 
   fn advance(&mut self) {
@@ -98,18 +96,8 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn variable(&mut self) -> AstNode {
-    let ty = self
-      .current_state
-      .types
-      .borrow_mut()
-      .lookup(&self.previous_token.value());
-    if ty.is_none() {
-      self.error(Some(ViError::EP002.to_info()));
-    }
-    AstNode::VarNode(VarNode {
-      name: self.previous_token.value().into(),
-      ty: RefCell::new(Rc::new(ty.unwrap())),
-    })
+    let name = self.previous_token.value().into();
+    AstNode::VarNode(VarNode { name })
   }
 
   fn call(&mut self, name: &str) -> AstNode {
@@ -291,14 +279,38 @@ impl<'a, 'b> Parser<'a, 'b> {
     Type::new(TypeLiteral::TYPE_INT)
   }
 
-  fn declarator(&mut self, ty: &Type) -> Type {
-    // declarator = "*"* ident
+  fn func_type(&mut self, ty: &Type) -> Type {
+    let func_ty = Type::new(TypeLiteral::TYPE_FUNC);
+    // return type
+    func_ty
+      .subtype
+      .borrow_mut()
+      .replace(RefCell::new(Rc::new(ty.clone())));
+    func_ty
+  }
+
+  fn type_suffix(&mut self, ty: &Type) -> Type {
+    // type-suffix = ("(" func-params)?
+    if self.match_tok(TokenType::LEFT_BRACKET) {
+      // todo: func param types should be sorted out here
+      self.consume(TokenType::RIGHT_BRACKET);
+      self.func_type(ty)
+    } else {
+      ty.clone()
+    }
+  }
+
+  fn declarator(&mut self, ty: &Type) -> (Type, String) {
+    // declarator = "*"* ident type-suffix
     let mut ty = ty.clone();
     while self.match_tok(TokenType::STAR) {
       ty = self.pointer_to(ty);
     }
     self.consume(TokenType::IDENT);
-    ty
+    let name = self.previous_token.value().into();
+    // = | ; -> var decl or ( -> func
+    ty = self.type_suffix(&ty);
+    (ty, name)
   }
 
   fn declaration(&mut self) -> AstNode {
@@ -310,32 +322,22 @@ impl<'a, 'b> Parser<'a, 'b> {
       if i > 0 {
         self.consume(TokenType::COMMA);
       }
-      let ty = self.declarator(&base_ty);
-      let name: String = self.previous_token.value().into();
-      // insert type
-      self
-        .current_state
-        .types
-        .borrow_mut()
-        .insert_type(name.clone(), ty.clone());
-      // todo: multiple vars with same name
+      let (ty, name) = self.declarator(&base_ty);
+      let ty = RefCell::new(Rc::new(ty));
       // insert local
-      if let None =
-        self.current_state.locals.get(self.previous_token.value())
-      {
-        self.current_state.locals.insert(name.clone(), 1);
-      }
-      let var = VarNode {
-        name,
-        ty: RefCell::new(Rc::new(ty)),
-      };
+      self.locals.push(name.clone());
       if !self.match_tok(TokenType::EQUAL) {
-        decls.push(VarDeclNode { var, value: None });
+        decls.push(VarDeclNode {
+          name,
+          ty,
+          value: None,
+        });
         continue;
       }
       let value = self.assign();
       decls.push(VarDeclNode {
-        var,
+        name,
+        ty,
         value: Some(Box::new(value)),
       });
       i += 1;
@@ -446,24 +448,34 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
   }
 
-  pub fn parse(&mut self) -> AstNode {
-    self.advance();
+  fn function(&mut self) -> AstNode {
+    let ty = self.declspec();
+    let (ty, name) = self.declarator(&ty);
+    // create new fn state
+    self.enter();
     self.consume(TokenType::LEFT_CURLY);
     let list = self.compound_stmt();
-    let mut locals = vec![];
-    self.current_state.locals.iter().for_each(|(var, _)| {
-      locals.push(var.clone()); // todo: should not clone
-    });
+    // leave fn state
+    self.leave(&name);
     if let AstNode::BlockStmtNode(block) = list {
       AstNode::FunctionNode(FunctionNode {
+        name,
         stack_size: Cell::new(0),
         body: block,
-        locals,
-        types: self.current_state.types.clone(),
-        ty: RefCell::new(Rc::new(Type::new(TypeLiteral::TYPE_INT))), // todo: use func signature
+        locals: std::mem::take(&mut self.locals),
+        ty: RefCell::new(Rc::new(ty)),
       })
     } else {
       panic!("expected BlockStmtNode node")
     }
+  }
+
+  pub fn parse(&mut self) -> AstNode {
+    self.advance();
+    let mut decls = vec![];
+    while !self.match_tok(TokenType::EOF) {
+      decls.push(self.function());
+    }
+    AstNode::ProgramNode(ProgramNode { decls })
   }
 }

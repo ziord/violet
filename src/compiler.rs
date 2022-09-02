@@ -1,10 +1,11 @@
+use crate::analyzer::SemAnalyzer;
 use crate::ast::{
   AstNode, BinaryNode, BlockStmtNode, FunctionNode, VarDeclListNode,
-  VarDeclNode, VarNode,
+  VarDeclNode,
 };
 use crate::lexer::OpType;
 use crate::parser::Parser;
-use crate::types::{Type, TypeCheck, TypeLiteral, TypeProp};
+use crate::types::{Type, TypeCheck, TypeLiteral};
 use crate::util;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -14,6 +15,7 @@ struct GenState {
   symbols: HashMap<String, i32>,
   stack_size: i32,
   counter: i32,
+  current_fn: Option<String>,
 }
 
 impl Default for GenState {
@@ -22,6 +24,7 @@ impl Default for GenState {
       symbols: HashMap::new(),
       stack_size: 0,
       counter: 0,
+      current_fn: None,
     }
   }
 }
@@ -34,6 +37,14 @@ impl GenState {
       panic!("Unknown variable '{}'", name);
     }
   }
+
+  fn set_current_fn(&mut self, name: &str) {
+    self.current_fn.replace(name.into());
+  }
+
+  fn current_fn(&self) -> &str {
+    self.current_fn.as_ref().unwrap().as_str()
+  }
 }
 
 #[derive(Debug)]
@@ -41,8 +52,8 @@ pub struct Compiler<'a> {
   filename: &'a str,
   depth: i32,
   gen: GenState,
-  tc: TypeCheck<'a>,
   arg_regs: Vec<&'a str>,
+  tc: Option<TypeCheck<'a>>,
 }
 
 #[macro_export]
@@ -62,8 +73,8 @@ impl<'a> Compiler<'a> {
       filename,
       depth: 0,
       gen: GenState::default(),
-      tc: TypeCheck::new(),
       arg_regs: vec!["rdi", "rsi", "rdx", "rcx", "r8", "r9"],
+      tc: None,
     }
   }
 
@@ -110,9 +121,9 @@ impl<'a> Compiler<'a> {
       .set(self.align_to(func.locals.len() as i32, 16));
   }
 
-  fn get_address(&mut self, var: &VarNode) -> String {
+  fn get_address(&mut self, name: &str) -> String {
     // get the offset from rbp
-    let offset = self.gen.get_offset(&var.name);
+    let offset = self.gen.get_offset(&name);
     format!("{offset}(%rbp)")
   }
 
@@ -120,6 +131,15 @@ impl<'a> Compiler<'a> {
     let count = self.gen.counter;
     self.gen.counter += 1;
     format!(".L.{prefix}.{count}")
+  }
+
+  fn tc(&mut self, node: &AstNode) -> Result<Rc<Type>, &str> {
+    self
+      .tc
+      .as_mut()
+      .unwrap()
+      .set_current_fn(&self.gen.current_fn.as_ref().unwrap());
+    self.tc.as_mut().unwrap().tc(node)
   }
 
   ///********************
@@ -140,6 +160,8 @@ impl<'a> Compiler<'a> {
   fn emit_prologue(&mut self, func: &FunctionNode) {
     self.emit_comment("(begin prologue)");
     // set up frame pointer
+    println!("  .global _{}", func.name);
+    println!("_{}:", func.name);
     println!("  push %rbp");
     println!("  mov %rsp, %rbp");
     // reserve space for locals
@@ -152,19 +174,20 @@ impl<'a> Compiler<'a> {
 
   fn emit_epilogue(&mut self) {
     self.emit_comment("(begin epilogue)");
-    self.emit_label(".L.return");
+    self.emit_label(&format!(".L.return.{}", self.gen.current_fn()));
     // reset the stack pointer to its original value
     // since (rbp holds the original value,, see prolog())
     println!("  mov %rbp, %rsp");
     // pop frame pointer
     println!("  pop %rbp");
+    println!("  ret");
     self.emit_comment("(end epilogue)");
   }
 
   fn emit_address(&mut self, node: &AstNode) {
     match node {
       AstNode::VarNode(n) => {
-        println!("  lea {}, %rax", self.get_address(n));
+        println!("  lea {}, %rax", self.get_address(&n.name));
       }
       AstNode::UnaryNode(ref addr_node) => {
         match addr_node.op {
@@ -201,7 +224,7 @@ impl<'a> Compiler<'a> {
     // todo!!! use op
     if let AstNode::VarNode(left) = &*node.left_node {
       self.c_(&node.right_node);
-      println!("  mov %rax, {}", self.get_address(left));
+      println!("  mov %rax, {}", self.get_address(&left.name));
     } else {
       self.c_(&node.right_node);
       self.push_reg();
@@ -265,8 +288,8 @@ impl<'a> Compiler<'a> {
     let node = unbox!(BinaryNode, node);
     if node.op == OpType::PLUS || node.op == OpType::MINUS {
       // type-check, if any of the operand is a pointer, use c_ptr_binary
-      let left_ty = self.tc.tc(&node.left_node).unwrap();
-      let right_ty = self.tc.tc(&node.right_node).unwrap();
+      let left_ty = self.tc(&node.left_node).unwrap();
+      let right_ty = self.tc(&node.right_node).unwrap();
       if left_ty.kind.get() == TypeLiteral::TYPE_PTR
         && right_ty.kind.get() == TypeLiteral::TYPE_INT
         || left_ty.kind.get() == TypeLiteral::TYPE_INT
@@ -354,7 +377,8 @@ impl<'a> Compiler<'a> {
     let node = unbox!(ReturnNode, node);
     self.c_(&node.expr);
     // emit a jmp to the return site
-    self.emit_jmp(".L.return"); // .L.return currently in prologue
+    // .L.return currently in prologue
+    self.emit_jmp(&format!(".L.return.{}", self.gen.current_fn()));
   }
 
   fn c_expr_stmt(&mut self, node: &AstNode) {
@@ -421,7 +445,7 @@ impl<'a> Compiler<'a> {
   fn c_var_decl(&mut self, node: &VarDeclNode) {
     if let Some(val) = &node.value {
       self.c_(val);
-      println!("  mov %rax, {}", self.get_address(&node.var));
+      println!("  mov %rax, {}", self.get_address(&node.name));
     }
   }
 
@@ -448,10 +472,18 @@ impl<'a> Compiler<'a> {
 
   fn c_function(&mut self, node: &AstNode) {
     let mut func = unbox!(FunctionNode, node);
+    self.gen.set_current_fn(&func.name);
     self.store_lvar_offsets(&mut func);
     self.emit_prologue(func);
     self.c_stmt_list(&func.body);
     self.emit_epilogue();
+  }
+
+  fn c_prog(&mut self, node: &AstNode) {
+    let node = unbox!(ProgramNode, node);
+    for decl in &node.decls {
+      self.c_(decl);
+    }
   }
 
   fn c_(&mut self, node: &AstNode) {
@@ -471,6 +503,7 @@ impl<'a> Compiler<'a> {
       AstNode::VarDeclNode(n) => self.c_var_decl(n),
       AstNode::VarDeclListNode(n) => self.c_var_decl_list(n),
       AstNode::FnCallNode(_) => self.c_call(node),
+      AstNode::ProgramNode(_) => self.c_prog(node),
     }
   }
 
@@ -480,15 +513,13 @@ impl<'a> Compiler<'a> {
       return Err(res.unwrap_err());
     }
     let root = res.unwrap();
-    let mut tp = TypeProp::new();
-    tp.propagate_types(&root);
-    if let Err(msg) = self.tc.typecheck(&root) {
+    // semantic analysis
+    let mut sem = SemAnalyzer::new();
+    if let Err(msg) = sem.analyze(&root) {
       return Err(msg);
     }
-    println!("  .global _main");
-    println!("_main:");
+    self.tc.replace(TypeCheck::new(sem.move_tab()));
     self.c_(&root);
-    println!("  ret");
     Ok(0)
   }
 }

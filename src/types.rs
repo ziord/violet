@@ -1,8 +1,8 @@
+use crate::analyzer::{SymbolStack, SymbolTable};
 use crate::ast::{AstNode, BlockStmtNode, VarDeclNode, VarNode};
 use crate::lexer::OpType;
 use crate::unbox;
 use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
@@ -11,11 +11,11 @@ pub enum TypeLiteral {
   TYPE_NIL,
   TYPE_INT,
   TYPE_PTR,
+  TYPE_FUNC,
   // TYPE_VOID,
   // TYPE_CHAR,
   // TYPE_BOOL,
   // TYPE_ARRAY,
-  // TYPE_FUNCTION,
 }
 
 #[derive(Debug, Clone)]
@@ -31,15 +31,12 @@ pub struct Type {
   pub(crate) params: Option<RefCell<Vec<TParam>>>,
 }
 
-#[derive(Debug, Clone)]
-pub struct TypeStack {
-  pub(crate) stack: VecDeque<RefCell<HashMap<String, Type>>>,
-}
-
 #[derive(Debug)]
 pub struct TypeCheck<'a> {
   pub(crate) at_error: bool,
   pub(crate) error_msg: Option<&'a str>,
+  pub(crate) sym_tab: SymbolTable,
+  pub(crate) current_fn: String,
 }
 
 impl Type {
@@ -59,8 +56,10 @@ impl Type {
       return false;
     }
     if self.subtype.borrow().is_some() {
-      let sub_t1 = &self.subtype.borrow().clone().unwrap();
-      let sub_t2 = other.subtype.borrow().clone().unwrap();
+      let tmp = self.subtype.borrow();
+      let sub_t1 = tmp.as_ref().unwrap();
+      let tmp = other.subtype.borrow();
+      let sub_t2 = tmp.as_ref().unwrap();
       if !sub_t1.borrow().equals(&*sub_t2.borrow()) {
         return false;
       }
@@ -69,8 +68,8 @@ impl Type {
       return false;
     }
     if self.params.is_some() {
-      let sub_params_1 = &self.params.clone().unwrap();
-      let sub_params_2 = other.params.clone().unwrap();
+      let sub_params_1 = self.params.as_ref().unwrap();
+      let sub_params_2 = other.params.as_ref().unwrap();
       if sub_params_1.borrow().len() != sub_params_2.borrow().len() {
         return false;
       }
@@ -90,253 +89,26 @@ impl Type {
   }
 }
 
-impl TypeStack {
-  pub fn new() -> Self {
-    Self {
-      stack: VecDeque::new(),
-    }
-  }
-
-  pub fn push_stack(&mut self) {
-    self.stack.push_front(RefCell::new(HashMap::new()));
-  }
-
-  pub fn pop_stack(&mut self) {
-    self.stack.pop_front();
-  }
-
-  pub fn insert_type(&mut self, name: String, ty: Type) {
-    if self.stack.is_empty() {
-      self.stack.push_front(RefCell::new(HashMap::new()));
-    }
-    let t = self.stack.front().unwrap();
-    t.borrow_mut().insert(name, ty);
-  }
-
-  pub fn lookup(&self, name: &str) -> Option<Type> {
-    for rc_tab in &self.stack {
-      if let Some(ty) = rc_tab.borrow().get(name) {
-        return Some(ty.clone());
-      }
-    }
-    None
-  }
-}
-
-pub struct TypeProp {}
-
-impl TypeProp {
-  pub fn new() -> Self {
-    Self {}
-  }
-
-  fn p_num(&mut self, node: &AstNode) -> Rc<Type> {
-    unbox!(NumberNode, node).ty.borrow().clone()
-  }
-
-  fn p_var(&mut self, node: &AstNode) -> Rc<Type> {
-    unbox!(VarNode, node).ty.borrow().clone()
-  }
-
-  fn p_unary(&mut self, node: &AstNode) -> Rc<Type> {
-    let node = unbox!(UnaryNode, node);
-    // "cache"
-    if node.ty.borrow().kind.get() != TypeLiteral::TYPE_NIL {
-      return node.ty.borrow().clone();
-    }
-    // propagate
-    match node.op {
-      OpType::PLUS | OpType::MINUS => {
-        let ty = self.p_(&*node.node);
-        // let node_ty = node.ty.borrow_mut();
-        node.ty.replace(ty);
-        node.ty.borrow().clone()
-      }
-      OpType::ADDR => {
-        let ty = self.p_(&*node.node);
-        let node_ty = node.ty.borrow_mut();
-        node_ty.subtype.replace(Some(RefCell::new(ty)));
-        node_ty.kind.set(TypeLiteral::TYPE_PTR);
-        node_ty.clone()
-      }
-      OpType::DEREF => {
-        let ty = self.p_(&node.node);
-        if ty.kind.get() == TypeLiteral::TYPE_PTR {
-          node
-            .ty
-            .replace(ty.subtype.borrow_mut().clone().unwrap().into_inner());
-        } else {
-          panic!("Expected pointer type as subtype for dereference");
-        }
-        node.ty.borrow().clone()
-      }
-      _ => panic!("unknown unary operator '{:?}'", node.op),
-    }
-  }
-
-  fn p_binary(&mut self, node: &AstNode) -> Rc<Type> {
-    let node = unbox!(BinaryNode, node);
-    let left_ty = self.p_(&*node.left_node);
-    let right_ty = self.p_(&node.right_node);
-    // need to use op and types of left and right node.
-    match node.op {
-      OpType::PLUS | OpType::MINUS => {
-        if left_ty.kind.get() == TypeLiteral::TYPE_INT {
-          // int, int
-          if right_ty.kind.get() == TypeLiteral::TYPE_INT {
-            return left_ty;
-          }
-          // int, ptr
-          else if right_ty.kind.get() == TypeLiteral::TYPE_PTR {
-            if node.op != OpType::MINUS {
-              // int - ptr -> err
-              return right_ty;
-            }
-          }
-        } else if left_ty.kind.get() == TypeLiteral::TYPE_PTR {
-          // ptr, int
-          if right_ty.kind.get() == TypeLiteral::TYPE_INT {
-            return left_ty;
-          }
-          // ptr, ptr
-          else if right_ty.kind.get() == TypeLiteral::TYPE_PTR {
-            return Rc::new(Type::new(TypeLiteral::TYPE_INT));
-          }
-        }
-      }
-      OpType::DIV => {
-        // int, int
-        if left_ty.kind == right_ty.kind
-          && left_ty.kind.get() == TypeLiteral::TYPE_INT
-        {
-          return left_ty;
-        }
-      }
-      OpType::MUL => {
-        // int, int
-        if left_ty.kind == right_ty.kind
-          && left_ty.kind.get() == TypeLiteral::TYPE_INT
-        {
-          return left_ty;
-        }
-      }
-      OpType::LEQ
-      | OpType::GEQ
-      | OpType::LT
-      | OpType::GT
-      | OpType::EQQ
-      | OpType::NEQ => {
-        if left_ty.equals(&right_ty) {
-          return left_ty;
-        }
-      }
-      _ => unreachable!(),
-    }
-    Rc::new(Type::new(TypeLiteral::TYPE_NIL))
-  }
-
-  fn p_block(&mut self, node: &BlockStmtNode) -> Rc<Type> {
-    for n in &node.stmts {
-      self.p_(n);
-    }
-    Rc::new(Type::new(TypeLiteral::TYPE_NIL))
-  }
-
-  fn p_function(&mut self, node: &AstNode) -> Rc<Type> {
-    let node = unbox!(FunctionNode, node);
-    self.p_block(&node.body)
-  }
-
-  fn p_assign(&mut self, node: &AstNode) -> Rc<Type> {
-    let node = unbox!(AssignNode, node);
-    self.p_(&*node.left_node);
-    self.p_(&node.right_node)
-  }
-
-  fn p_if_else(&mut self, node: &AstNode) -> Rc<Type> {
-    let node = unbox!(IfElseNode, node);
-    self.p_(&node.condition);
-    self.p_(&node.if_block);
-    self.p_(&node.else_block)
-  }
-
-  fn p_for_loop(&mut self, node: &AstNode) -> Rc<Type> {
-    let node = unbox!(ForLoopNode, node);
-    self.p_(&node.init);
-    self.p_(&node.condition);
-    self.p_(&node.incr);
-    self.p_(&node.body)
-  }
-
-  fn p_while_loop(&mut self, node: &AstNode) -> Rc<Type> {
-    let node = unbox!(WhileLoopNode, node);
-    self.p_(&node.condition);
-    self.p_(&node.body)
-  }
-
-  fn p_return(&mut self, node: &AstNode) -> Rc<Type> {
-    self.p_(&unbox!(ReturnNode, node).expr)
-  }
-
-  fn p_expr_stmt(&mut self, node: &AstNode) -> Rc<Type> {
-    self.p_(&unbox!(ExprStmtNode, node).node)
-  }
-
-  fn p_var_decl(&mut self, node: &VarDeclNode) -> Rc<Type> {
-    if let Some(val) = &node.value {
-      self.p_(&*val);
-    }
-    Rc::new(Type::new(TypeLiteral::TYPE_NIL))
-  }
-
-  fn p_var_decl_list(&mut self, node: &AstNode) -> Rc<Type> {
-    let node = unbox!(VarDeclListNode, node);
-    for decl in &node.decls {
-      self.p_var_decl(decl);
-    }
-    Rc::new(Type::new(TypeLiteral::TYPE_NIL))
-  }
-
-  fn p_call(&mut self, node: &AstNode) -> Rc<Type> {
-    // todo!("need to use the function's signature for the return value")
-    let node = unbox!(FnCallNode, node);
-    for arg in &node.args {
-      self.p_(arg);
-    }
-    Rc::new(Type::new(TypeLiteral::TYPE_INT))
-  }
-
-  fn p_(&mut self, node: &AstNode) -> Rc<Type> {
-    match node {
-      AstNode::NumberNode(_) => self.p_num(node),
-      AstNode::BinaryNode(_) => self.p_binary(node),
-      AstNode::UnaryNode(_) => self.p_unary(node),
-      AstNode::ExprStmtNode(_) => self.p_expr_stmt(node),
-      AstNode::FunctionNode(_) => self.p_function(node),
-      AstNode::AssignNode(_) => self.p_assign(node),
-      AstNode::VarNode(_) => self.p_var(node),
-      AstNode::ReturnNode(_) => self.p_return(node),
-      AstNode::BlockStmtNode(n) => self.p_block(n),
-      AstNode::IfElseNode(_) => self.p_if_else(node),
-      AstNode::ForLoopNode(_) => self.p_for_loop(node),
-      AstNode::WhileLoopNode(_) => self.p_while_loop(node),
-      AstNode::VarDeclNode(n) => self.p_var_decl(n),
-      AstNode::VarDeclListNode(_) => self.p_var_decl_list(node),
-      AstNode::FnCallNode(_) => self.p_call(node),
-    }
-  }
-
-  pub fn propagate_types(&mut self, root: &AstNode) {
-    self.p_(root);
-  }
-}
-
 impl<'a> TypeCheck<'a> {
-  pub fn new() -> Self {
+  pub fn new(type_tabs: SymbolTable) -> Self {
     Self {
       at_error: false,
       error_msg: None,
+      sym_tab: type_tabs,
+      current_fn: String::new(),
     }
+  }
+
+  fn get_func_table(&self) -> &(Rc<Type>, SymbolStack<String, Rc<Type>>) {
+    &(self
+      .sym_tab
+      .symbols()
+      .get(&self.current_fn)
+      .expect("Table not found"))
+  }
+
+  fn table(&self) -> &SymbolStack<String, Rc<Type>> {
+    &self.get_func_table().1
   }
 
   fn tc_num(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
@@ -350,7 +122,46 @@ impl<'a> TypeCheck<'a> {
     if self.at_error {
       return Err(self.error_msg.unwrap());
     }
-    Ok(node.ty.borrow().clone())
+    let ty = self.table().lookup_symbol(&node.name);
+    Ok(ty.unwrap())
+  }
+
+  fn tc_unary(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
+    if self.at_error {
+      return Err(self.error_msg.unwrap());
+    }
+    let node = unbox!(UnaryNode, node);
+    let ty = self.tc(&node.node);
+    if ty.is_err() {
+      return ty;
+    }
+    let ty = ty.unwrap();
+    // propagate
+    match node.op {
+      OpType::PLUS | OpType::MINUS => {
+        if ty.kind.get() == TypeLiteral::TYPE_INT {
+          return Ok(ty);
+        }
+      }
+      OpType::ADDR => {
+        let node_ty = node.ty.borrow_mut().clone();
+        node_ty.subtype.replace(Some(RefCell::new(ty)));
+        node_ty.kind.set(TypeLiteral::TYPE_PTR);
+        return Ok(node_ty);
+      }
+      OpType::DEREF => {
+        if ty.kind.get() == TypeLiteral::TYPE_PTR {
+          return Ok(ty.subtype.borrow_mut().clone().unwrap().into_inner());
+        } else {
+          eprintln!("Expected pointer type as subtype for dereference");
+        }
+      }
+      _ => panic!("unknown unary operator '{:?}'", node.op),
+    }
+    // todo: better error reporting
+    eprintln!("Type mismatch - for unary operation: {:#?}", node);
+    self.error_msg = Some("Type mismatch");
+    Err(self.error_msg.unwrap())
   }
 
   fn tc_binary(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
@@ -423,39 +234,8 @@ impl<'a> TypeCheck<'a> {
     }
     // todo: better error reporting
     eprintln!("Type mismatch - for binary operation: {:#?}", node);
-    Err("Type mismatch")
-  }
-
-  fn tc_unary(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
-    if self.at_error {
-      return Err(self.error_msg.unwrap());
-    }
-    let node = unbox!(UnaryNode, node);
-    let ty = self.tc(&node.node);
-    if ty.is_err() {
-      return ty;
-    }
-    let ty = ty.unwrap();
-    let node_ty = node.ty.borrow().clone();
-    match node.op {
-      OpType::PLUS | OpType::MINUS => {
-        if ty.kind.get() == TypeLiteral::TYPE_INT {
-          return Ok(node_ty);
-        }
-      }
-      OpType::ADDR => {
-        return Ok(node_ty);
-      }
-      OpType::DEREF => {
-        if ty.kind.get() == TypeLiteral::TYPE_PTR {
-          return Ok(node_ty);
-        }
-      }
-      _ => unreachable!(),
-    }
-    // todo: better error reporting
-    eprintln!("Type mismatch - for unary operation: {:#?}", node);
-    Err("Type mismatch")
+    self.error_msg = Some("Type mismatch");
+    Err(self.error_msg.unwrap())
   }
 
   fn tc_assign(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
@@ -476,16 +256,34 @@ impl<'a> TypeCheck<'a> {
       return Ok(left_ty);
     }
     // todo: better error reporting
-    eprintln!("Type mismatch - for assignment operation: {:?}", node);
-    Err("Invalid assignment target")
+    eprintln!("Type mismatch - for assignment operation: {:#?}", node);
+    self.error_msg = Some("Assignment target type mismatch");
+    Err(self.error_msg.unwrap())
   }
 
   fn tc_return(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
-    // todo: use function signature
     if self.at_error {
       return Err(self.error_msg.unwrap());
     }
-    self.tc(&unbox!(ReturnNode, node).expr)
+    let ret_ty = self.tc(&unbox!(ReturnNode, node).expr);
+    let (func_ret_ty, _) =
+      self.sym_tab.symbols().get(&self.current_fn).unwrap();
+    if let Ok(ret_ty) = ret_ty {
+      if func_ret_ty
+        .subtype
+        .borrow()
+        .as_ref()
+        .unwrap()
+        .borrow()
+        .equals(&ret_ty)
+      {
+        return Ok(ret_ty);
+      } else {
+        eprintln!("Type mismatch - return type does not match function definition: {:?}", node);
+        self.error_msg = Some("Return type mismatch");
+      }
+    }
+    Err(self.error_msg.unwrap())
   }
 
   fn tc_function(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
@@ -493,6 +291,7 @@ impl<'a> TypeCheck<'a> {
       return Err(self.error_msg.unwrap());
     }
     let node = unbox!(FunctionNode, node);
+    self.current_fn = node.name.clone();
     self.tc_block(&node.body)
   }
 
@@ -579,18 +378,14 @@ impl<'a> TypeCheck<'a> {
     if self.at_error {
       return Err(self.error_msg.unwrap());
     }
-    let left_ty = self.tc_var(&node.var);
-    if left_ty.is_err() {
-      return left_ty;
-    }
+    let left_ty = node.ty.borrow();
     if let Some(value) = &node.value {
       let right_ty = self.tc(&*value);
       if right_ty.is_err() {
         return right_ty;
       }
-      let left_ty = left_ty.unwrap();
-      let right_ty = right_ty.unwrap();
-      if !left_ty.equals(&right_ty) {
+      let ty = right_ty.as_ref().unwrap();
+      if !left_ty.equals(ty) {
         // todo: better error handling
         eprintln!(
           "Type mismatch:\n{:#?} is not equal to {:#?}",
@@ -599,9 +394,9 @@ impl<'a> TypeCheck<'a> {
         self.error_msg = Some("Type mismatch");
         return Err(self.error_msg.unwrap());
       }
-      return Ok(left_ty);
+      return right_ty;
     }
-    left_ty
+    Ok(left_ty.clone())
   }
 
   fn tc_var_decl_list(
@@ -620,12 +415,47 @@ impl<'a> TypeCheck<'a> {
   }
 
   fn tc_call(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
-    // todo!("need to type-check using the function's signature")
-    // let node = unbox!(FnCallNode, node);
-    // for arg in &node.args {
-    //   let mut ty = self.tc(arg);
-    // }
-    Ok(Rc::new(Type::new(TypeLiteral::TYPE_INT)))
+    let node = unbox!(FnCallNode, node);
+    // using unwrap() as semantic analysis guarantees that the
+    // function exists before arriving at typechecking
+    let (ty, _) = self.sym_tab.symbols().get(&node.name).unwrap();
+    let ty = ty.clone();
+    // check that it's a function
+    if ty.kind.get() != TypeLiteral::TYPE_FUNC {
+      self.error_msg = Some("variable is not callable");
+      return Err(self.error_msg.unwrap());
+    }
+    // check that params have expected types
+    let tmp = ty.params.as_ref().unwrap().borrow();
+    let mut param_types = tmp.iter();
+    for arg in &node.args {
+      let exp_ty = param_types.next();
+      if let Ok(got_ty) = self.tc(arg) {
+        if !exp_ty.as_ref().unwrap().type_.equals(&got_ty) {
+          eprintln!(
+            "Type error: Expected type {:#?}, bot got type {:#?}",
+            exp_ty, got_ty
+          );
+          self.error_msg = Some("Parameter type mismatch");
+          return Err(self.error_msg.unwrap());
+        }
+      } else {
+        return Err(self.error_msg.unwrap());
+      }
+    }
+    // return the return type of the function
+    Ok(ty.clone())
+  }
+
+  fn tc_prog(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
+    let node = unbox!(ProgramNode, node);
+    for decl in &node.decls {
+      let res = self.tc(decl);
+      if res.is_err() {
+        return res;
+      }
+    }
+    Ok(Rc::new(Type::new(TypeLiteral::TYPE_NIL)))
   }
 
   pub(crate) fn tc(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
@@ -648,7 +478,12 @@ impl<'a> TypeCheck<'a> {
       AstNode::VarDeclNode(nd) => self.tc_var_decl(nd),
       AstNode::VarDeclListNode(_) => self.tc_var_decl_list(node),
       AstNode::FnCallNode(_) => self.tc_call(node),
+      AstNode::ProgramNode(_) => self.tc_prog(node),
     }
+  }
+
+  pub(crate) fn set_current_fn(&mut self, curr_fn: &str) {
+    self.current_fn = curr_fn.into();
   }
 
   pub fn typecheck(&mut self, node: &AstNode) -> Result<(), &'a str> {
@@ -656,6 +491,6 @@ impl<'a> TypeCheck<'a> {
     if ty.is_ok() {
       return Ok(());
     }
-    Err(self.error_msg.unwrap())
+    Err(ty.unwrap_err())
   }
 }

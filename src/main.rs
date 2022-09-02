@@ -1,10 +1,11 @@
+mod analyzer;
 mod ast;
 mod compiler;
 mod errors;
 mod lexer;
 mod parser;
-mod util;
 mod types;
+mod util;
 
 use std::env;
 

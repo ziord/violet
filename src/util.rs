@@ -6,6 +6,9 @@ pub(crate) fn read_file(filename: &str) -> Result<String, Error> {
 }
 
 #[allow(dead_code)] // todo
-pub(crate) fn write_file(filename: &str, content: String) -> Result<(), Error> {
+pub(crate) fn write_file(
+  filename: &str,
+  content: String,
+) -> Result<(), Error> {
   Ok(fs::write(filename, content)?)
 }

@@ -1,5 +1,5 @@
 use crate::lexer::OpType;
-use crate::types::{Type, TypeStack};
+use crate::types::Type;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -36,7 +36,6 @@ pub struct BlockStmtNode {
 #[derive(Debug)]
 pub struct VarNode {
   pub(crate) name: String,
-  pub(crate) ty: RefCell<Rc<Type>>,
 }
 
 #[derive(Debug)]
@@ -48,10 +47,10 @@ pub struct AssignNode {
 
 #[derive(Debug)]
 pub struct FunctionNode {
+  pub(crate) name: String,
   pub(crate) stack_size: Cell<i32>,
   pub(crate) body: BlockStmtNode,
   pub(crate) locals: Vec<String>,
-  pub(crate) types: Rc<RefCell<TypeStack>>,
   pub(crate) ty: RefCell<Rc<Type>>,
 }
 
@@ -83,7 +82,8 @@ pub struct WhileLoopNode {
 
 #[derive(Debug)]
 pub struct VarDeclNode {
-  pub(crate) var: VarNode,
+  pub(crate) ty: RefCell<Rc<Type>>,
+  pub(crate) name: String,
   pub(crate) value: Option<Box<AstNode>>,
 }
 
@@ -96,6 +96,11 @@ pub struct VarDeclListNode {
 pub struct FnCallNode {
   pub(crate) name: String,
   pub(crate) args: Vec<AstNode>,
+}
+
+#[derive(Debug)]
+pub struct ProgramNode {
+  pub(crate) decls: Vec<AstNode>,
 }
 
 #[derive(Debug)]
@@ -115,4 +120,5 @@ pub enum AstNode {
   VarDeclNode(VarDeclNode),
   VarDeclListNode(VarDeclListNode),
   FnCallNode(FnCallNode),
+  ProgramNode(ProgramNode),
 }
