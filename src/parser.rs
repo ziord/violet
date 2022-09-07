@@ -148,8 +148,30 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
   }
 
+  fn postfix(&mut self) -> AstNode {
+    // postfix = primary ("[" expr "]")*
+    let mut node = self.primary();
+    while self.match_tok(TokenType::LEFT_SQR_BRACKET) {
+      // x[y] is a sugar for *(x+y)
+      let index = self.expr();
+      self.consume(TokenType::RIGHT_SQR_BRACKET);
+      let tmp = UnaryNode {
+        op: OpType::DEREF,
+        node: Box::new(AstNode::BinaryNode(BinaryNode {
+          left_node: Box::new(node),
+          right_node: Box::new(index),
+          op: OpType::PLUS,
+        })),
+        ty: RefCell::new(Rc::new(Type::default())),
+      };
+      node = AstNode::UnaryNode(tmp);
+    }
+    node
+  }
+
   fn unary(&mut self) -> AstNode {
-    // unary = ("+" | "-" | "*" | "&") unary | primary
+    // unary = ("+" | "-" | "*" | "&") unary
+    //       | postfix
     match self.current_token.t_type() {
       TokenType::PLUS
       | TokenType::MINUS
@@ -167,7 +189,7 @@ impl<'a, 'b> Parser<'a, 'b> {
           ty: RefCell::new(Rc::new(Type::default())),
         })
       }
-      _ => self.primary(),
+      _ => self.postfix(),
     }
   }
 

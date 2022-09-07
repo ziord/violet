@@ -257,15 +257,18 @@ impl<'a> Compiler<'a> {
   ) {
     let left: &AstNode;
     let right: &AstNode;
+    let _ty;
     if left_ty.subtype.borrow().is_some() {
       left = &node.left_node;
       right = &node.right_node;
+      _ty = left_ty;
     } else {
       left = &node.right_node;
       right = &node.left_node;
+      _ty = right_ty;
     }
     // 'unwrap()' because semantic analysis guarantees
-    let ptr_size = left_ty
+    let ptr_size = _ty
       .subtype
       .borrow()
       .as_ref()
