@@ -295,6 +295,11 @@ impl<'a> TypeCheck<'a> {
     if left_ty.is_err() {
       return left_ty;
     }
+    if left_ty.as_ref().unwrap().kind.get() == TypeLiteral::TYPE_ARRAY {
+      eprintln!("Type {:#?} is not an lvalue", left_ty.as_ref().unwrap());
+      self.error_msg = Some("Not an lvalue");
+      return Err(self.error_msg.unwrap());
+    }
     let right_ty = self.tc(&node.right_node);
     if right_ty.is_err() {
       return right_ty;
@@ -492,7 +497,8 @@ impl<'a> TypeCheck<'a> {
       }
     }
     // return the return type of the function
-    Ok(ty.clone())
+    let ret_ty = ty.subtype.borrow().as_ref().unwrap().borrow().clone();
+    Ok(ret_ty)
   }
 
   fn tc_prog(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {

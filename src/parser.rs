@@ -348,7 +348,8 @@ impl<'a, 'b> Parser<'a, 'b> {
         .parse()
         .expect("array size should be an unsigned integer");
       self.consume(TokenType::RIGHT_SQR_BRACKET);
-      (Type::array_of(ty.clone(), len), None)
+      let (ty, _) = self.type_suffix(ty);
+      (Type::array_of(ty, len), None)
     } else {
       (ty.clone(), None)
     }

@@ -7,6 +7,7 @@ use crate::lexer::OpType;
 use crate::parser::Parser;
 use crate::types::{Type, TypeCheck, TypeLiteral};
 use crate::util;
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -125,9 +126,11 @@ impl<'a> Compiler<'a> {
     format!("{offset}(%rbp)")
   }
 
-  fn create_label(&mut self, prefix: &str) -> String {
+  fn create_label(&mut self, prefix: &str, incr: bool) -> String {
+    if incr {
+      self.gen.counter += 1;
+    }
     let count = self.gen.counter;
-    self.gen.counter += 1;
     format!(".L.{prefix}.{count}")
   }
 
@@ -172,7 +175,7 @@ impl<'a> Compiler<'a> {
 
   fn emit_epilogue(&mut self) {
     self.emit_comment("(begin epilogue)");
-    self.emit_label(&format!(".L.return.{}", self.gen.current_fn()));
+    self.emit_label(&format!(".L.return._{}", self.gen.current_fn()));
     // reset the stack pointer to its original value
     // since (rbp holds the original value,, see prolog())
     println!("  mov %rbp, %rsp");
@@ -254,7 +257,7 @@ impl<'a> Compiler<'a> {
   ) {
     let left: &AstNode;
     let right: &AstNode;
-    if left_ty.kind.get() == TypeLiteral::TYPE_PTR {
+    if left_ty.subtype.borrow().is_some() {
       left = &node.left_node;
       right = &node.right_node;
     } else {
@@ -262,7 +265,14 @@ impl<'a> Compiler<'a> {
       right = &node.left_node;
     }
     // 'unwrap()' because semantic analysis guarantees
-    let ptr_size = self.tc(left).unwrap().size;
+    let ptr_size = left_ty
+      .subtype
+      .borrow()
+      .as_ref()
+      .borrow()
+      .unwrap()
+      .borrow()
+      .size;
     if node.op == OpType::PLUS {
       // ptr + int (int + ptr) -> ptr + (int * ptr_size)
       self.c_(right);
@@ -303,12 +313,12 @@ impl<'a> Compiler<'a> {
       // type-check, if any of the operand is a pointer, use c_ptr_binary
       let left_ty = self.tc(&node.left_node).unwrap();
       let right_ty = self.tc(&node.right_node).unwrap();
-      if left_ty.kind.get() == TypeLiteral::TYPE_PTR
+      if left_ty.subtype.borrow().is_some()
         && right_ty.kind.get() == TypeLiteral::TYPE_INT
         || left_ty.kind.get() == TypeLiteral::TYPE_INT
-          && right_ty.kind.get() == TypeLiteral::TYPE_PTR
-        || left_ty.kind.get() == TypeLiteral::TYPE_PTR
-          && right_ty.kind.get() == TypeLiteral::TYPE_PTR
+          && right_ty.subtype.borrow().is_some()
+        || left_ty.subtype.borrow().is_some()
+          && right_ty.subtype.borrow().is_some()
       {
         return self.c_ptr_binary(node, &left_ty, &right_ty);
       }
@@ -395,7 +405,7 @@ impl<'a> Compiler<'a> {
     self.c_(&node.expr);
     // emit a jmp to the return site
     // .L.return currently in prologue
-    self.emit_jmp(&format!(".L.return.{}", self.gen.current_fn()));
+    self.emit_jmp(&format!(".L.return._{}", self.gen.current_fn()));
   }
 
   fn c_expr_stmt(&mut self, node: &AstNode) {
@@ -413,12 +423,12 @@ impl<'a> Compiler<'a> {
     self.c_(&node.condition);
     // cmp $0, %rax
     // je else_label
-    let else_label = self.create_label("else");
+    let else_label = self.create_label("else", true);
+    // jmp end_label
+    let end_label = self.create_label("endif", false);
     println!("  cmp $0, %rax");
     println!("  je {}", else_label);
     self.c_(&node.if_block);
-    // jmp end_label
-    let end_label = self.create_label("endif");
     self.emit_jmp(&end_label);
     self.emit_label(&else_label);
     self.c_(&node.else_block);
@@ -428,10 +438,8 @@ impl<'a> Compiler<'a> {
   fn c_for_loop(&mut self, node: &AstNode) {
     let node = unbox!(ForLoopNode, node);
     self.c_(&node.init);
-    let cond_label = self.create_label("for_cond");
-    // let incr_label = self.create_label("for_incr");
-    let end_label = self.create_label("for_end");
-    // let body_label = self.create_label("for_body");
+    let cond_label = self.create_label("for_cond", true);
+    let end_label = self.create_label("for_end", false);
     // condition block
     self.emit_label(&cond_label);
     self.c_(&node.condition);
@@ -447,8 +455,8 @@ impl<'a> Compiler<'a> {
 
   fn c_while_loop(&mut self, node: &AstNode) {
     let node = unbox!(WhileLoopNode, node);
-    let cond_label = self.create_label("while_cond");
-    let end_label = self.create_label("while_end");
+    let cond_label = self.create_label("while_cond", true);
+    let end_label = self.create_label("while_end", false);
     self.emit_label(&cond_label);
     self.c_(&node.condition);
     println!("  cmp $0, %rax");

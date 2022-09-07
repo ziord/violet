@@ -103,4 +103,11 @@ assert 3 '70.c'
 assert 4 '71.c'
 assert 5 '72.c'
 assert 4 '73.c'
+
+assert 0 '74.c'
+assert 1 '75.c'
+assert 2 '76.c'
+assert 3 '77.c'
+assert 4 '78.c'
+assert 5 '79.c'
 echo OK
