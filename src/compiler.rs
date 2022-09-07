@@ -111,14 +111,12 @@ impl<'a> Compiler<'a> {
      *    | ^ <- goes up the stack
      *    | |
      */
-    let mut offset = 8;
-    for var in &func.locals {
-      self.gen.symbols.insert(var.clone(), -offset);
-      offset += 8;
+    let mut offset = 0;
+    for (var_ty, var_name) in &func.locals {
+      offset += var_ty.size;
+      self.gen.symbols.insert(var_name.clone(), -(offset as i32));
     }
-    func
-      .stack_size
-      .set(self.align_to(func.locals.len() as i32, 16));
+    func.stack_size.set(self.align_to(offset as i32, 16));
   }
 
   fn get_address(&self, name: &str) -> String {
@@ -203,6 +201,21 @@ impl<'a> Compiler<'a> {
     }
   }
 
+  fn emit_store(&mut self) {
+    self.pop_reg("rdi"); // val
+                         // store val in memory location identified by rax
+    println!("  mov %rdi, (%rax)");
+  }
+
+  fn emit_load(&mut self, ty: &Type) {
+    // move value at address in memory into rax
+    if ty.kind.get() == TypeLiteral::TYPE_ARRAY {
+      // can't load entire array into register
+      return;
+    }
+    println!("  mov (%rax), %rax");
+  }
+
   ///***********************
   ///* Compilation routines
   ///***********************
@@ -214,8 +227,7 @@ impl<'a> Compiler<'a> {
   fn c_var(&mut self, node: &AstNode) {
     // store address in rax
     self.emit_address(node);
-    // move value at address in memory into rax
-    println!("  mov (%rax), %rax");
+    self.emit_load(unbox!(VarNode, node).ty.borrow().as_ref());
   }
 
   fn c_assign(&mut self, node: &AstNode) {
@@ -229,8 +241,7 @@ impl<'a> Compiler<'a> {
       self.c_(&node.right_node);
       self.push_reg();
       self.emit_address(&node.left_node);
-      self.pop_reg("rdi"); // val
-      println!("  mov %rdi, (%rax)");
+      self.emit_store();
     }
     self.emit_comment("(end assignment)");
   }
@@ -250,10 +261,12 @@ impl<'a> Compiler<'a> {
       left = &node.right_node;
       right = &node.left_node;
     }
+    // 'unwrap()' because semantic analysis guarantees
+    let ptr_size = self.tc(left).unwrap().size;
     if node.op == OpType::PLUS {
-      // ptr + int (int + ptr) -> ptr + (int * 8)
+      // ptr + int (int + ptr) -> ptr + (int * ptr_size)
       self.c_(right);
-      println!("  imul $8, %rax, %rax");
+      println!("  imul ${}, %rax, %rax", ptr_size);
       self.push_reg();
       self.c_(left);
       self.pop_reg("rdi");
@@ -261,22 +274,22 @@ impl<'a> Compiler<'a> {
       println!("  add %rdi, %rax"); // left + right
     } else {
       if right_ty.kind.get() == TypeLiteral::TYPE_INT {
-        // ptr - int -> ptr - (int * 8)
+        // ptr - int -> ptr - (int * ptr_size)
         self.c_(right);
-        println!("  imul $8, %rax, %rax");
+        println!("  imul ${}, %rax, %rax", ptr_size);
         self.push_reg();
         self.c_(left);
         self.pop_reg("rdi");
         // %rax -> %rax - %rdi
         println!("  sub %rdi, %rax"); // left - right
       } else {
-        // ptr - ptr -> (ptr - ptr) / 8
+        // ptr - ptr -> (ptr - ptr) / ptr_size
         self.c_(right);
         self.push_reg();
         self.c_(left);
         self.pop_reg("rdi");
         println!("  sub %rdi, %rax"); // right -> left - right
-        println!("  mov $8, %rdi");
+        println!("  mov ${}, %rdi", ptr_size);
         println!("  cqo");
         println!("  idiv %rdi");
       }
@@ -363,7 +376,11 @@ impl<'a> Compiler<'a> {
       OpType::DEREF => {
         self.emit_comment("(begin deref)");
         self.c_(&*u_node.node);
-        println!("  mov (%rax), %rax");
+        // todo: once type-checking is enabled, we can use the
+        //   unary node's type directly here, since it'll already
+        //   be propagated by the type checker
+        let node_ty = self.tc(node).unwrap();
+        self.emit_load(&node_ty);
         self.emit_comment("(end deref)");
       }
       OpType::ADDR => {
@@ -388,7 +405,6 @@ impl<'a> Compiler<'a> {
   fn c_stmt_list(&mut self, stmt_list: &BlockStmtNode) {
     for stmt in &stmt_list.stmts {
       self.c_(stmt);
-      assert_eq!(self.depth, 0, "Expected depth to be zero");
     }
   }
 
@@ -484,6 +500,7 @@ impl<'a> Compiler<'a> {
       );
     }
     self.c_stmt_list(&func.body);
+    assert_eq!(self.depth, 0, "Expected depth to be zero");
     self.emit_epilogue();
   }
 

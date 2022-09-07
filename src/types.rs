@@ -12,10 +12,10 @@ pub enum TypeLiteral {
   TYPE_INT,
   TYPE_PTR,
   TYPE_FUNC,
+  TYPE_ARRAY,
   // TYPE_VOID,
   // TYPE_CHAR,
   // TYPE_BOOL,
-  // TYPE_ARRAY,
 }
 
 #[derive(Debug, Clone)]
@@ -29,6 +29,8 @@ pub struct Type {
   pub(crate) kind: Cell<TypeLiteral>,
   pub(crate) subtype: RefCell<Option<RefCell<Rc<Type>>>>,
   pub(crate) params: Option<RefCell<Vec<TParam>>>,
+  pub(crate) size: u32,
+  pub(crate) array_len: u32,
 }
 
 #[derive(Debug)]
@@ -39,13 +41,57 @@ pub struct TypeCheck<'a> {
   pub(crate) current_fn: String,
 }
 
+impl Default for Type {
+  fn default() -> Self {
+    Self {
+      kind: Cell::new(TypeLiteral::TYPE_NIL),
+      subtype: RefCell::new(None),
+      params: None,
+      size: 0,
+      array_len: 0,
+    }
+  }
+}
+
+impl From<Rc<Type>> for Type {
+  fn from(ty: Rc<Type>) -> Self {
+    Self {
+      kind: ty.kind.clone(),
+      subtype: ty.subtype.clone(),
+      params: ty.params.clone(),
+      size: ty.size,
+      array_len: ty.array_len,
+    }
+  }
+}
+
 impl Type {
   pub fn new(kind: TypeLiteral) -> Self {
     Self {
       kind: Cell::new(kind),
       subtype: RefCell::new(None),
       params: None,
+      size: match kind {
+        // sub.size comes from here
+        TypeLiteral::TYPE_INT | TypeLiteral::TYPE_PTR => 8,
+        _ => 0,
+      },
+      array_len: 0,
     }
+  }
+
+  pub fn pointer_to(sub: Type) -> Self {
+    let ty = Type::new(TypeLiteral::TYPE_PTR);
+    ty.subtype.borrow_mut().replace(RefCell::new(Rc::new(sub)));
+    ty
+  }
+
+  pub fn array_of(sub: Type, len: u32) -> Type {
+    let mut ty = Type::new(TypeLiteral::TYPE_ARRAY);
+    ty.size = sub.size * len;
+    ty.array_len = len;
+    ty.subtype.borrow_mut().replace(RefCell::new(Rc::new(sub)));
+    ty
   }
 
   pub fn equals(&self, other: &Self) -> bool {
@@ -122,8 +168,7 @@ impl<'a> TypeCheck<'a> {
     if self.at_error {
       return Err(self.error_msg.unwrap());
     }
-    let ty = self.table().lookup_symbol(&node.name);
-    Ok(ty.unwrap())
+    Ok(node.ty.borrow().clone())
   }
 
   fn tc_unary(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
@@ -144,16 +189,19 @@ impl<'a> TypeCheck<'a> {
         }
       }
       OpType::ADDR => {
-        let node_ty = node.ty.borrow_mut().clone();
-        node_ty.subtype.replace(Some(RefCell::new(ty)));
-        node_ty.kind.set(TypeLiteral::TYPE_PTR);
-        return Ok(node_ty);
+        return if ty.kind.get() == TypeLiteral::TYPE_ARRAY {
+          Ok(Rc::new(Type::pointer_to(
+            ty.subtype.borrow_mut().take().unwrap().take().into(),
+          )))
+        } else {
+          Ok(Rc::new(Type::pointer_to(ty.into())))
+        };
       }
       OpType::DEREF => {
-        if ty.kind.get() == TypeLiteral::TYPE_PTR {
+        if ty.subtype.borrow().is_some() {
           return Ok(ty.subtype.borrow_mut().clone().unwrap().into_inner());
         } else {
-          eprintln!("Expected pointer type as subtype for dereference");
+          eprintln!("Invalid target for dereference");
         }
       }
       _ => panic!("unknown unary operator '{:?}'", node.op),
@@ -186,15 +234,15 @@ impl<'a> TypeCheck<'a> {
           if right_ty.kind.get() == TypeLiteral::TYPE_INT {
             return Ok(left_ty);
           }
-          // int, ptr
-          else if right_ty.kind.get() == TypeLiteral::TYPE_PTR {
+          // int, ptr/array/function
+          else if right_ty.subtype.borrow().is_some() {
             if node.op != OpType::MINUS {
               // int - ptr -> err
               return Ok(right_ty);
             }
           }
-        } else if left_ty.kind.get() == TypeLiteral::TYPE_PTR {
-          // ptr, int
+        } else if left_ty.subtype.borrow().is_some() {
+          // ptr/array/function, int
           if right_ty.kind.get() == TypeLiteral::TYPE_INT {
             return Ok(left_ty);
           }
@@ -309,7 +357,7 @@ impl<'a> TypeCheck<'a> {
         return ty;
       }
     }
-    Ok(Rc::new(Type::new(TypeLiteral::TYPE_NIL)))
+    Ok(Rc::new(Type::default()))
   }
 
   fn tc_if_else(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
@@ -368,7 +416,7 @@ impl<'a> TypeCheck<'a> {
     if ty.is_err() {
       return ty;
     }
-    Ok(Rc::new(Type::new(TypeLiteral::TYPE_NIL)))
+    Ok(Rc::new(Type::default()))
   }
 
   fn tc_var_decl(
@@ -411,7 +459,7 @@ impl<'a> TypeCheck<'a> {
         return res;
       }
     }
-    Ok(Rc::new(Type::new(TypeLiteral::TYPE_NIL)))
+    Ok(Rc::new(Type::default()))
   }
 
   fn tc_call(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
@@ -455,10 +503,11 @@ impl<'a> TypeCheck<'a> {
         return res;
       }
     }
-    Ok(Rc::new(Type::new(TypeLiteral::TYPE_NIL)))
+    Ok(Rc::new(Type::default()))
   }
 
   pub(crate) fn tc(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
+    // todo: propagate types
     if self.at_error {
       return Err(self.error_msg.unwrap());
     }

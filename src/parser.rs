@@ -16,7 +16,7 @@ pub(crate) struct Parser<'a, 'b> {
   lexer: Lexer<'a, 'b>,
   current_token: Token<'a>,
   previous_token: Token<'a>,
-  locals: Vec<String>,
+  locals: Vec<(Rc<Type>, String)>,
 }
 
 impl<'a, 'b> Parser<'a, 'b> {
@@ -87,6 +87,16 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
   }
 
+  fn find_var_type(&self, name: &str) -> Rc<Type> {
+    for (var_ty, var_name) in &self.locals {
+      if var_name == name {
+        return var_ty.clone();
+      }
+    }
+    // todo: need to handle this
+    panic!("variable '{}' is not defined in the current scope", name)
+  }
+
   fn num(&mut self) -> AstNode {
     self.consume(TokenType::NUM);
     AstNode::NumberNode(NumberNode {
@@ -96,8 +106,9 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn variable(&mut self) -> AstNode {
-    let name = self.previous_token.value().into();
-    AstNode::VarNode(VarNode { name })
+    let name: String = self.previous_token.value().into();
+    let ty = RefCell::new(self.find_var_type(&name));
+    AstNode::VarNode(VarNode { name, ty })
   }
 
   fn call(&mut self, name: &str) -> AstNode {
@@ -153,7 +164,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         AstNode::UnaryNode(UnaryNode {
           node: Box::new(node),
           op,
-          ty: RefCell::new(Rc::new(Type::new(TypeLiteral::TYPE_NIL))),
+          ty: RefCell::new(Rc::new(Type::default())),
         })
       }
       _ => self.primary(),
@@ -267,12 +278,6 @@ impl<'a, 'b> Parser<'a, 'b> {
     })
   }
 
-  fn pointer_to(&self, sub: Type) -> Type {
-    let ty = Type::new(TypeLiteral::TYPE_PTR);
-    ty.subtype.borrow_mut().replace(RefCell::new(Rc::new(sub)));
-    ty
-  }
-
   fn declspec(&mut self) -> Type {
     // declspec = "int"
     self.consume(TokenType::INT);
@@ -283,7 +288,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     &mut self,
     ty: &Type,
     params: Vec<VarDeclNode>,
-  ) -> (Type, Vec<VarDeclNode>) {
+  ) -> (Type, Option<Vec<VarDeclNode>>) {
     let mut func_ty = Type::new(TypeLiteral::TYPE_FUNC);
     // return type
     func_ty
@@ -291,6 +296,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       .borrow_mut()
       .replace(RefCell::new(Rc::new(ty.clone())));
     if params.len() > 0 {
+      // associate params type with func type
       let mut params_ty = vec![];
       for param in &params {
         params_ty.push(TParam {
@@ -300,52 +306,68 @@ impl<'a, 'b> Parser<'a, 'b> {
       }
       func_ty.params.replace(RefCell::new(params_ty));
     }
-    (func_ty, params)
+    (func_ty, Some(params))
   }
 
-  fn type_suffix(&mut self, ty: &Type) -> (Type, Vec<VarDeclNode>) {
-    // type-suffix = ("(" func-params? ")")?
-    // func-params = param ("," param)*
+  fn func_params(&mut self, ty: &Type) -> (Type, Option<Vec<VarDeclNode>>) {
+    // func-params = (param ("," param)*)? ")"
     // param       = declspec declarator
-    if self.match_tok(TokenType::LEFT_BRACKET) {
-      let mut i = 0;
-      let mut params = vec![];
-      while !self.match_tok(TokenType::RIGHT_BRACKET) {
-        // func-params
-        if i > 0 {
-          self.consume(TokenType::COMMA);
-        }
-        let base_ty = self.declspec();
-        let ((ty, _), name) = self.declarator(&base_ty);
-        // make parameters locally scoped to the function
-        self.locals.push(name.clone());
-        params.push(VarDeclNode {
-          ty: RefCell::new(Rc::new(ty)),
-          name,
-          value: None,
-        });
-        i += 1;
+    let mut i = 0;
+    let mut params = vec![];
+    while !self.match_tok(TokenType::RIGHT_BRACKET) {
+      // func-params
+      if i > 0 {
+        self.consume(TokenType::COMMA);
       }
-      self.func_type(ty, params)
+      let base_ty = self.declspec();
+      let ((ty, _), name) = self.declarator(&base_ty);
+      let ty = Rc::new(ty);
+      // make parameters locally scoped to the function
+      self.locals.push((ty.clone(), name.clone()));
+      params.push(VarDeclNode {
+        ty: RefCell::new(ty),
+        name,
+        value: None,
+      });
+      i += 1;
+    }
+    self.func_type(ty, params)
+  }
+
+  fn type_suffix(&mut self, ty: &Type) -> (Type, Option<Vec<VarDeclNode>>) {
+    // type-suffix = "(" func-params
+    //             | "[" num "]"
+    //             | ε
+    if self.match_tok(TokenType::LEFT_BRACKET) {
+      self.func_params(ty)
+    } else if self.match_tok(TokenType::LEFT_SQR_BRACKET) {
+      self.consume(TokenType::NUM);
+      let len: u32 = self
+        .previous_token
+        .value()
+        .parse()
+        .expect("array size should be an unsigned integer");
+      self.consume(TokenType::RIGHT_SQR_BRACKET);
+      (Type::array_of(ty.clone(), len), None)
     } else {
-      (ty.clone(), vec![])
+      (ty.clone(), None)
     }
   }
 
   fn declarator(
     &mut self,
     ty: &Type,
-  ) -> ((Type, Vec<VarDeclNode>), String) {
+  ) -> ((Type, Option<Vec<VarDeclNode>>), String) {
     // declarator = "*"* ident type-suffix
     let mut ty = ty.clone();
     while self.match_tok(TokenType::STAR) {
-      ty = self.pointer_to(ty);
+      ty = Type::pointer_to(ty);
     }
     self.consume(TokenType::IDENT);
     let name = self.previous_token.value().into();
     // = | ; -> var decl or ( -> func
-    let ty_params = self.type_suffix(&ty);
-    (ty_params, name)
+    let suffixes = self.type_suffix(&ty);
+    (suffixes, name)
   }
 
   fn declaration(&mut self) -> AstNode {
@@ -357,10 +379,10 @@ impl<'a, 'b> Parser<'a, 'b> {
       if i > 0 {
         self.consume(TokenType::COMMA);
       }
-      let ((ty, _), name) = self.declarator(&base_ty);
+      let ((ty, _params), name) = self.declarator(&base_ty);
       let ty = RefCell::new(Rc::new(ty));
       // insert local
-      self.locals.push(name.clone());
+      self.locals.push((ty.borrow().clone(), name.clone()));
       if !self.match_tok(TokenType::EQUAL) {
         decls.push(VarDeclNode {
           name,
@@ -495,7 +517,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     if let AstNode::BlockStmtNode(block) = list {
       AstNode::FunctionNode(FunctionNode {
         name,
-        params,
+        params: params.unwrap_or(vec![]),
         stack_size: Cell::new(0),
         body: block,
         locals: std::mem::take(&mut self.locals),

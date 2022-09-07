@@ -36,6 +36,7 @@ pub struct BlockStmtNode {
 #[derive(Debug)]
 pub struct VarNode {
   pub(crate) name: String,
+  pub(crate) ty: RefCell<Rc<Type>>,
 }
 
 #[derive(Debug)]
@@ -51,7 +52,7 @@ pub struct FunctionNode {
   pub(crate) stack_size: Cell<i32>,
   pub(crate) params: Vec<VarDeclNode>,
   pub(crate) body: BlockStmtNode,
-  pub(crate) locals: Vec<String>,
+  pub(crate) locals: Vec<(Rc<Type>, String)>,
   pub(crate) ty: RefCell<Rc<Type>>,
 }
 

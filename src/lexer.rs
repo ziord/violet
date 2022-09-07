@@ -6,33 +6,35 @@ use std::{collections::HashMap, fmt::Display};
 #[allow(non_camel_case_types)]
 pub enum TokenType {
   NUM,
-  PLUS,          // +
-  MINUS,         // -
-  STAR,          // *
-  FWD_SLASH,     // /
-  LEFT_BRACKET,  // (
-  RIGHT_BRACKET, // )
-  LESS_THAN,     // <
-  GRT_THAN,      // >
-  EQUAL_EQUAL,   // ==
-  NOT_EQUAL,     // !=
-  LESS_EQUAL,    // <=
-  GRT_EQUAL,     // >=
-  EQUAL,         // =
-  SEMI_COLON,    // ;
-  COMMA,         // ,
-  IDENT,         // id
-  LEFT_CURLY,    // {
-  RIGHT_CURLY,   // }
-  AMP,           // &
-  RETURN,        // return
-  IF,            // if
-  ELSE,          // else
-  FOR,           // for
-  WHILE,         // while
-  INT,           // int
-  BOF,           // |-
-  EOF,           // -|
+  PLUS,              // +
+  MINUS,             // -
+  STAR,              // *
+  FWD_SLASH,         // /
+  LEFT_BRACKET,      // (
+  RIGHT_BRACKET,     // )
+  LEFT_SQR_BRACKET,  // [
+  RIGHT_SQR_BRACKET, // ]
+  LESS_THAN,         // <
+  GRT_THAN,          // >
+  EQUAL_EQUAL,       // ==
+  NOT_EQUAL,         // !=
+  LESS_EQUAL,        // <=
+  GRT_EQUAL,         // >=
+  EQUAL,             // =
+  SEMI_COLON,        // ;
+  COMMA,             // ,
+  IDENT,             // id
+  LEFT_CURLY,        // {
+  RIGHT_CURLY,       // }
+  AMP,               // &
+  RETURN,            // return
+  IF,                // if
+  ELSE,              // else
+  FOR,               // for
+  WHILE,             // while
+  INT,               // int
+  BOF,               // |-
+  EOF,               // -|
   ERROR,
 }
 
@@ -87,6 +89,10 @@ impl Display for TokenType {
       TokenType::FWD_SLASH => write!(f, "TOK<FWD-SLASH>"),
       TokenType::LEFT_BRACKET => write!(f, "TOK<LEFT-BRACKET>"),
       TokenType::RIGHT_BRACKET => write!(f, "TOK<RIGHT-BRACKET>"),
+      TokenType::LEFT_SQR_BRACKET => write!(f, "TOK<LEFT-SQUARE-BRACKET>"),
+      TokenType::RIGHT_SQR_BRACKET => {
+        write!(f, "TOK<RIGHT-SQUARE-BRACKET>")
+      }
       TokenType::LESS_THAN => write!(f, "TOK<LESS-THAN>"),
       TokenType::GRT_THAN => write!(f, "TOK<GREATER-THAN>"),
       TokenType::EQUAL_EQUAL => write!(f, "TOK<EQUAL-EQUAL>"),
@@ -346,6 +352,8 @@ impl<'a, 'b> Lexer<'a, 'b> {
       '/' => self.create_token(TokenType::FWD_SLASH),
       '(' => self.create_token(TokenType::LEFT_BRACKET),
       ')' => self.create_token(TokenType::RIGHT_BRACKET),
+      '[' => self.create_token(TokenType::LEFT_SQR_BRACKET),
+      ']' => self.create_token(TokenType::RIGHT_SQR_BRACKET),
       ';' => self.create_token(TokenType::SEMI_COLON),
       '{' => self.create_token(TokenType::LEFT_CURLY),
       '}' => self.create_token(TokenType::RIGHT_CURLY),
