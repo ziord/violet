@@ -1,13 +1,14 @@
 use crate::analyzer::SemAnalyzer;
 use crate::ast::{
-  AstNode, BinaryNode, BlockStmtNode, FunctionNode, VarDeclListNode,
-  VarDeclNode,
+  AstNode, BinaryNode, BlockStmtNode, FunctionNode, NumberNode,
+  VarDeclListNode, VarDeclNode,
 };
 use crate::lexer::OpType;
 use crate::parser::Parser;
 use crate::types::{Type, TypeCheck, TypeLiteral};
 use crate::util;
 use std::borrow::Borrow;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -497,6 +498,17 @@ impl<'a> Compiler<'a> {
     println!("  call _{}", node.name);
   }
 
+  fn c_sizeof(&mut self, node: &AstNode) {
+    // todo: remove call to tc when typechecking is enabled in semantic analysis
+    let ty = self.tc(node);
+    let node = unbox!(SizeofNode, node);
+    let node = AstNode::NumberNode(NumberNode {
+      value: node.size.get() as i32,
+      ty: RefCell::new(ty.unwrap()),
+    });
+    self.c_number(&node);
+  }
+
   fn c_function(&mut self, node: &AstNode) {
     let mut func = unbox!(FunctionNode, node);
     self.gen.set_current_fn(&func.name);
@@ -540,6 +552,7 @@ impl<'a> Compiler<'a> {
       AstNode::VarDeclListNode(n) => self.c_var_decl_list(n),
       AstNode::FnCallNode(_) => self.c_call(node),
       AstNode::ProgramNode(_) => self.c_prog(node),
+      AstNode::SizeofNode(_) => self.c_sizeof(node),
     }
   }
 

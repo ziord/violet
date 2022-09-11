@@ -28,6 +28,7 @@ pub enum TokenType {
   RIGHT_CURLY,       // }
   AMP,               // &
   RETURN,            // return
+  SIZEOF,            //sizeof
   IF,                // if
   ELSE,              // else
   FOR,               // for
@@ -104,6 +105,7 @@ impl Display for TokenType {
       TokenType::AMP => write!(f, "TOK<AMP>"),
       TokenType::IDENT => write!(f, "TOK<IDENTIFIER>"),
       TokenType::RETURN => write!(f, "TOK<RETURN>"),
+      TokenType::SIZEOF => write!(f, "TOK<SIZEOF>"),
       TokenType::IF => write!(f, "TOK<IF>"),
       TokenType::ELSE => write!(f, "TOK<ELSE>"),
       TokenType::FOR => write!(f, "TOK<FOR>"),
@@ -215,6 +217,7 @@ impl<'a, 'b> Lexer<'a, 'b> {
   pub fn new(src: &'a str) -> Self {
     let kwds = [
       ("return", TokenType::RETURN),
+      ("sizeof", TokenType::SIZEOF),
       ("if", TokenType::IF),
       ("else", TokenType::ELSE),
       ("for", TokenType::FOR),

@@ -1,7 +1,7 @@
 use crate::ast::{
   AssignNode, AstNode, BinaryNode, BlockStmtNode, ExprStmtNode, FnCallNode,
   ForLoopNode, FunctionNode, IfElseNode, NumberNode, ProgramNode,
-  ReturnNode, UnaryNode, VarDeclListNode, VarDeclNode, VarNode,
+  ReturnNode, SizeofNode, UnaryNode, VarDeclListNode, VarDeclNode, VarNode,
   WhileLoopNode,
 };
 use crate::errors::{ErrorInfo, ViError};
@@ -129,7 +129,7 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn primary(&mut self) -> AstNode {
-    // primary = "(" expr ")" | ident args? | num
+    // primary = "(" expr ")" | "sizeof" unary | ident args? | num
     // args = "(" ")"
     if self.match_tok(TokenType::LEFT_BRACKET) {
       let node = self.expr();
@@ -143,6 +143,11 @@ impl<'a, 'b> Parser<'a, 'b> {
       } else {
         self.variable()
       }
+    } else if self.match_tok(TokenType::SIZEOF) {
+      AstNode::SizeofNode(SizeofNode {
+        size: Cell::new(0),
+        node: Box::new(self.unary()),
+      })
     } else {
       self.num()
     }

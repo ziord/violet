@@ -467,6 +467,17 @@ impl<'a> TypeCheck<'a> {
     Ok(Rc::new(Type::default()))
   }
 
+  fn tc_sizeof(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
+    let node = unbox!(SizeofNode, node);
+    let res = self.tc(&node.node);
+    if res.is_err() {
+      return res;
+    }
+    let ty = res.as_ref().unwrap();
+    node.size.set(ty.size);
+    res
+  }
+
   fn tc_call(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
     let node = unbox!(FnCallNode, node);
     // using unwrap() as semantic analysis guarantees that the
@@ -534,6 +545,7 @@ impl<'a> TypeCheck<'a> {
       AstNode::VarDeclListNode(_) => self.tc_var_decl_list(node),
       AstNode::FnCallNode(_) => self.tc_call(node),
       AstNode::ProgramNode(_) => self.tc_prog(node),
+      AstNode::SizeofNode(_) => self.tc_sizeof(node),
     }
   }
 

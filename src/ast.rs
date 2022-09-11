@@ -101,6 +101,12 @@ pub struct FnCallNode {
 }
 
 #[derive(Debug)]
+pub struct SizeofNode {
+  pub(crate) size: Cell<u32>,
+  pub(crate) node: Box<AstNode>,
+}
+
+#[derive(Debug)]
 pub struct ProgramNode {
   pub(crate) decls: Vec<AstNode>,
 }
@@ -122,5 +128,6 @@ pub enum AstNode {
   VarDeclNode(VarDeclNode),
   VarDeclListNode(VarDeclListNode),
   FnCallNode(FnCallNode),
+  SizeofNode(SizeofNode),
   ProgramNode(ProgramNode),
 }

@@ -222,6 +222,8 @@ impl<'a> SemAnalyzer<'a> {
     }
   }
 
+  fn sem_sizeof(&mut self, node: &AstNode) {}
+
   fn sem_block(&mut self, node: &BlockStmtNode) {
     for n in &node.stmts {
       self.sem(n);
@@ -268,6 +270,7 @@ impl<'a> SemAnalyzer<'a> {
       AstNode::VarDeclListNode(_) => self.sem_var_decl_list(node),
       AstNode::FnCallNode(_) => self.sem_call(node),
       AstNode::ProgramNode(_) => self.sem_prog(node),
+      AstNode::SizeofNode(_) => self.sem_sizeof(node),
     }
   }
 
