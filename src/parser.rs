@@ -104,6 +104,13 @@ impl<'a, 'b> Parser<'a, 'b> {
     panic!("variable '{}' is not defined in the current scope", name)
   }
 
+  fn is_typename(&self) -> bool {
+    match self.current_token.t_type() {
+      TokenType::INT | TokenType::CHAR => true,
+      _ => false,
+    }
+  }
+
   fn num(&mut self) -> AstNode {
     self.consume(TokenType::NUM);
     AstNode::NumberNode(NumberNode {
@@ -314,7 +321,10 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn declspec(&mut self) -> Type {
-    // declspec = "int"
+    // declspec = "char" | "int"
+    if self.match_tok(TokenType::CHAR) {
+      return Type::new(TypeLiteral::TYPE_CHAR);
+    }
     self.consume(TokenType::INT);
     Type::new(TypeLiteral::TYPE_INT)
   }
@@ -451,7 +461,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     // compound-stmt = (declaration | stmt)* "}"
     let mut block = BlockStmtNode { stmts: vec![] };
     while !self.match_tok(TokenType::RIGHT_CURLY) {
-      if self.current_token.equal(TokenType::INT) {
+      if self.is_typename() {
         block.stmts.push(self.declaration());
       } else {
         block.stmts.push(self.stmt());

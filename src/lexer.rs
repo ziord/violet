@@ -34,6 +34,7 @@ pub enum TokenType {
   FOR,               // for
   WHILE,             // while
   INT,               // int
+  CHAR,              // char
   BOF,               // |-
   EOF,               // -|
   ERROR,
@@ -111,6 +112,7 @@ impl Display for TokenType {
       TokenType::FOR => write!(f, "TOK<FOR>"),
       TokenType::WHILE => write!(f, "TOK<WHILE>"),
       TokenType::INT => write!(f, "TOK<INT>"),
+      TokenType::CHAR => write!(f, "TOK<CHAR>"),
       TokenType::LEFT_CURLY => write!(f, "TOK<LEFT-CURLY>"),
       TokenType::RIGHT_CURLY => write!(f, "TOK<RIGHT-CURLY>"),
     }
@@ -223,6 +225,7 @@ impl<'a, 'b> Lexer<'a, 'b> {
       ("for", TokenType::FOR),
       ("while", TokenType::WHILE),
       ("int", TokenType::INT),
+      ("char", TokenType::CHAR),
     ];
     Self {
       src,

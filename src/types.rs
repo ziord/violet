@@ -9,6 +9,7 @@ use std::rc::Rc;
 #[allow(non_camel_case_types)]
 pub enum TypeLiteral {
   TYPE_NIL,
+  TYPE_CHAR,
   TYPE_INT,
   TYPE_PTR,
   TYPE_FUNC,
@@ -74,6 +75,7 @@ impl Type {
       size: match kind {
         // sub.size comes from here
         TypeLiteral::TYPE_INT | TypeLiteral::TYPE_PTR => 8,
+        TypeLiteral::TYPE_CHAR => 1,
         _ => 0,
       },
       array_len: 0,
@@ -94,10 +96,27 @@ impl Type {
     ty
   }
 
+  pub fn is_integer(&self) -> bool {
+    match self.kind.get() {
+      TypeLiteral::TYPE_INT | TypeLiteral::TYPE_CHAR => true,
+      _ => false,
+    }
+  }
+
+  pub fn promote_ty(_self: Rc<Self>, other: Rc<Self>) -> Rc<Self> {
+    // promote approximately equal types
+    if _self.kind.get() > other.kind.get() {
+      return _self;
+    }
+    other
+  }
+
   pub fn equals(&self, other: &Self) -> bool {
     // todo: not exhaustive. fix this.
     if self.kind != other.kind {
-      return false;
+      if !(self.is_integer() && other.is_integer()) {
+        return false;
+      }
     }
     if self.subtype.borrow().is_some() != other.subtype.borrow().is_some() {
       return false;
@@ -192,7 +211,13 @@ impl<'a> TypeCheck<'a> {
       OpType::ADDR => {
         return if ty.kind.get() == TypeLiteral::TYPE_ARRAY {
           Ok(Rc::new(Type::pointer_to(
-            ty.subtype.borrow().as_ref().unwrap().borrow().clone().into(),
+            ty.subtype
+              .borrow()
+              .as_ref()
+              .unwrap()
+              .borrow()
+              .clone()
+              .into(),
           )))
         } else {
           Ok(Rc::new(Type::pointer_to(ty.into())))
@@ -230,10 +255,10 @@ impl<'a> TypeCheck<'a> {
     let right_ty = right_ty.unwrap();
     match node.op {
       OpType::PLUS | OpType::MINUS => {
-        if left_ty.kind.get() == TypeLiteral::TYPE_INT {
+        if left_ty.is_integer() {
           // int, int
-          if right_ty.kind.get() == TypeLiteral::TYPE_INT {
-            return Ok(left_ty);
+          if right_ty.is_integer() {
+            return Ok(Type::promote_ty(left_ty, right_ty));
           }
           // int, ptr/array/function
           else if right_ty.subtype.borrow().is_some() {
@@ -255,17 +280,13 @@ impl<'a> TypeCheck<'a> {
       }
       OpType::DIV => {
         // int, int
-        if left_ty.kind == right_ty.kind
-          && left_ty.kind.get() == TypeLiteral::TYPE_INT
-        {
+        if left_ty.is_integer() && right_ty.is_integer() {
           return Ok(left_ty);
         }
       }
       OpType::MUL => {
         // int, int
-        if left_ty.kind == right_ty.kind
-          && left_ty.kind.get() == TypeLiteral::TYPE_INT
-        {
+        if left_ty.is_integer() && right_ty.is_integer() {
           return Ok(left_ty);
         }
       }

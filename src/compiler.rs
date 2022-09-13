@@ -1,7 +1,7 @@
 use crate::analyzer::SemAnalyzer;
 use crate::ast::{
   AstNode, BinaryNode, BlockStmtNode, FunctionNode, NumberNode,
-  ProgramNode, VarDeclListNode, VarDeclNode,
+  ProgramNode, VarDeclListNode, VarDeclNode, VarNode,
 };
 use crate::lexer::OpType;
 use crate::parser::Parser;
@@ -54,7 +54,8 @@ pub struct Compiler<'a> {
   filename: &'a str,
   depth: i32,
   gen: GenState,
-  arg_regs: Vec<&'a str>,
+  arg_regs64: Vec<&'a str>,
+  arg_regs8: Vec<&'a str>,
   tc: Option<TypeCheck<'a>>,
 }
 
@@ -75,7 +76,8 @@ impl<'a> Compiler<'a> {
       filename,
       depth: 0,
       gen: GenState::default(),
-      arg_regs: vec!["rdi", "rsi", "rdx", "rcx", "r8", "r9"],
+      arg_regs64: vec!["rdi", "rsi", "rdx", "rcx", "r8", "r9"],
+      arg_regs8: vec!["dil", "sil", "dl", "cl", "r8b", "r9b"],
       tc: None,
     }
   }
@@ -210,10 +212,15 @@ impl<'a> Compiler<'a> {
     }
   }
 
-  fn emit_store(&mut self) {
-    self.pop_reg("rdi"); // val
+  fn emit_store(&mut self, ty: &Type) {
+    // val
+    self.pop_reg("rdi");
     // store val in memory location identified by rax
-    println!("  mov %rdi, (%rax)");
+    if ty.size == 1 {
+      println!("  mov %al, (%rdi)");
+    } else {
+      println!("  mov %rax, (%rdi)");
+    }
   }
 
   fn emit_load(&mut self, ty: &Type) {
@@ -222,7 +229,13 @@ impl<'a> Compiler<'a> {
       // can't load entire array into register
       return;
     }
-    println!("  mov (%rax), %rax");
+    if ty.size == 1 {
+      // load a value at %rax in memory, and sign-extend it to 64 bits
+      // storing it in %rax
+      println!("  movsbq (%rax), %rax");
+    } else {
+      println!("  mov (%rax), %rax");
+    }
   }
 
   fn emit_data(&mut self, node: &ProgramNode) {
@@ -265,23 +278,25 @@ impl<'a> Compiler<'a> {
     self.emit_load(unbox!(VarNode, node).ty.borrow().as_ref());
   }
 
-  fn c_assign(&mut self, node: &AstNode) {
+  fn _c_assign(
+    &mut self,
+    left_node: &AstNode,
+    right_node: &AstNode,
+    op: &OpType,
+  ) {
+    // todo: use op
     self.emit_comment("(begin assignment)");
-    let node = unbox!(AssignNode, node);
-    // todo!!! use op
-    if let AstNode::VarNode(left) = &*node.left_node {
-      if left.is_local {
-        self.c_(&node.right_node);
-        println!("  mov %rax, {}", self.get_address(&left.name));
-        self.emit_comment("(end assignment)");
-        return;
-      }
-    }
-    self.c_(&node.right_node);
+    self.emit_address(left_node);
     self.push_reg();
-    self.emit_address(&node.left_node);
-    self.emit_store();
+    self.c_(right_node);
+    let ty = self.tc(left_node).unwrap();
+    self.emit_store(&ty);
     self.emit_comment("(end assignment)");
+  }
+
+  fn c_assign(&mut self, node: &AstNode) {
+    let node = unbox!(AssignNode, node);
+    self._c_assign(&node.left_node, &node.right_node, &node.op);
   }
 
   fn c_ptr_binary(
@@ -405,6 +420,7 @@ impl<'a> Compiler<'a> {
             panic!("Unrecognized operator '{}'", node.op);
           }
         }
+        // move value in %al and zero-extend to a byte.
         println!("  movzb %al, %rax");
       }
     }
@@ -506,8 +522,13 @@ impl<'a> Compiler<'a> {
 
   fn c_var_decl(&mut self, node: &VarDeclNode) {
     if let Some(val) = &node.value {
-      self.c_(val);
-      println!("  mov %rax, {}", self.get_address(&node.name));
+      let right_node = val;
+      let left_node = Box::new(AstNode::VarNode(VarNode {
+        name: node.name.clone(),
+        ty: RefCell::new(node.ty.borrow().clone()),
+        is_local: node.is_local,
+      }));
+      self._c_assign(&left_node, &right_node, &OpType::EQ);
     }
   }
 
@@ -525,7 +546,7 @@ impl<'a> Compiler<'a> {
     }
     // store args in the six registers (reversed)
     for i in (0..node.args.len()).rev() {
-      self.pop_reg(self.arg_regs[i]);
+      self.pop_reg(self.arg_regs64[i]);
     }
     println!("  mov $0, %rax");
     // info: clang prepends "_" to function names
@@ -550,9 +571,14 @@ impl<'a> Compiler<'a> {
     self.emit_prologue(func);
     // params
     for i in 0..func.params.len() {
+      let param = func.params.get(i).unwrap();
       println!(
         "  mov %{}, {}",
-        self.arg_regs[i],
+        if param.ty.borrow().size == 1 {
+          self.arg_regs8[i]
+        } else {
+          self.arg_regs64[i]
+        },
         self.get_address(&func.params[i].name)
       );
     }
