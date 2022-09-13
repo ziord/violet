@@ -37,6 +37,7 @@ pub struct BlockStmtNode {
 pub struct VarNode {
   pub(crate) name: String,
   pub(crate) ty: RefCell<Rc<Type>>,
+  pub(crate) is_local: bool
 }
 
 #[derive(Debug)]
@@ -87,6 +88,7 @@ pub struct VarDeclNode {
   pub(crate) ty: RefCell<Rc<Type>>,
   pub(crate) name: String,
   pub(crate) value: Option<Box<AstNode>>,
+  pub(crate) is_local: bool
 }
 
 #[derive(Debug)]
@@ -109,6 +111,7 @@ pub struct SizeofNode {
 #[derive(Debug)]
 pub struct ProgramNode {
   pub(crate) decls: Vec<AstNode>,
+  pub(crate) globals: Vec<(Rc<Type>, String)>
 }
 
 #[derive(Debug)]

@@ -95,6 +95,7 @@ impl Type {
   }
 
   pub fn equals(&self, other: &Self) -> bool {
+    // todo: not exhaustive. fix this.
     if self.kind != other.kind {
       return false;
     }
@@ -191,7 +192,7 @@ impl<'a> TypeCheck<'a> {
       OpType::ADDR => {
         return if ty.kind.get() == TypeLiteral::TYPE_ARRAY {
           Ok(Rc::new(Type::pointer_to(
-            ty.subtype.borrow_mut().take().unwrap().take().into(),
+            ty.subtype.borrow().as_ref().unwrap().borrow().clone().into(),
           )))
         } else {
           Ok(Rc::new(Type::pointer_to(ty.into())))
@@ -442,7 +443,7 @@ impl<'a> TypeCheck<'a> {
         // todo: better error handling
         eprintln!(
           "Type mismatch:\n{:#?} is not equal to {:#?}",
-          left_ty, right_ty
+          left_ty, ty
         );
         self.error_msg = Some("Type mismatch");
         return Err(self.error_msg.unwrap());
@@ -475,7 +476,7 @@ impl<'a> TypeCheck<'a> {
     }
     let ty = res.as_ref().unwrap();
     node.size.set(ty.size);
-    res
+    Ok(Rc::new(Type::new(TypeLiteral::TYPE_INT)))
   }
 
   fn tc_call(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {

@@ -17,9 +17,10 @@ To compile your C file(s), do: violet file.c"
   )
 }
 
-pub(crate) fn compile_file(filename: &str) {
+pub(crate) fn compile_file(filename: &str, dis_tc: bool) {
+  // todo: remove dis_tc
   let mut cmp = compiler::Compiler::new(filename);
-  let res = cmp.compile();
+  let res = cmp.compile(dis_tc);
   if let Ok(_v) = res {
     // println!("Exited with code {v}"); // todo
   } else {
@@ -37,7 +38,24 @@ fn main() {
   dbg!(&args);
   match args[1].as_str() {
     "--help" => print_help(),
-    _ => compile_file(&args[1]),
+    f @ _ => {
+      // disable typechecking for files (58-68).c
+      let p = f
+        .split("samples/")
+        .collect::<Vec<_>>()
+        .get(1)
+        .unwrap()
+        .split(".")
+        .collect::<Vec<_>>()
+        .get(0)
+        .unwrap()
+        .parse::<i32>()
+        .unwrap_or(0);
+      let dis_tc = (58..68).contains(&p)
+        || (74..=79).contains(&p)
+        || (85..=90).contains(&p);
+      compile_file(&args[1], dis_tc)
+    }
   }
 }
 

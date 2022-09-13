@@ -1,7 +1,7 @@
 use crate::analyzer::SemAnalyzer;
 use crate::ast::{
   AstNode, BinaryNode, BlockStmtNode, FunctionNode, NumberNode,
-  VarDeclListNode, VarDeclNode,
+  ProgramNode, VarDeclListNode, VarDeclNode,
 };
 use crate::lexer::OpType;
 use crate::parser::Parser;
@@ -163,6 +163,7 @@ impl<'a> Compiler<'a> {
     self.emit_comment("(begin prologue)");
     // set up frame pointer
     println!("  .global _{}", func.name);
+    println!("  .text");
     println!("_{}:", func.name);
     println!("  push %rbp");
     println!("  mov %rsp, %rbp");
@@ -189,7 +190,11 @@ impl<'a> Compiler<'a> {
   fn emit_address(&mut self, node: &AstNode) {
     match node {
       AstNode::VarNode(n) => {
-        println!("  lea {}, %rax", self.get_address(&n.name));
+        if n.is_local {
+          println!("  lea {}, %rax", self.get_address(&n.name));
+        } else {
+          println!("  lea {}(%rip), %rax", n.name);
+        }
       }
       AstNode::UnaryNode(ref addr_node) => {
         match addr_node.op {
@@ -207,7 +212,7 @@ impl<'a> Compiler<'a> {
 
   fn emit_store(&mut self) {
     self.pop_reg("rdi"); // val
-                         // store val in memory location identified by rax
+    // store val in memory location identified by rax
     println!("  mov %rdi, (%rax)");
   }
 
@@ -218,6 +223,32 @@ impl<'a> Compiler<'a> {
       return;
     }
     println!("  mov (%rax), %rax");
+  }
+
+  fn emit_data(&mut self, node: &ProgramNode) {
+    if node.globals.is_empty() {
+      return;
+    }
+    println!("  .data");
+    print!("  .global ");
+    let len = node.globals.len();
+    for (i, (_, name)) in node.globals.iter().enumerate() {
+      print!("{}", name);
+      if i != len - 1 {
+        print!(", ");
+      }
+    }
+    println!();
+    for (ty, name) in &node.globals {
+      println!("{}:", name);
+      println!("  .zero {}", ty.size);
+    }
+  }
+
+  fn emit_text(&mut self, node: &ProgramNode) {
+    for decl in &node.decls {
+      self.c_(decl);
+    }
   }
 
   ///***********************
@@ -239,14 +270,17 @@ impl<'a> Compiler<'a> {
     let node = unbox!(AssignNode, node);
     // todo!!! use op
     if let AstNode::VarNode(left) = &*node.left_node {
-      self.c_(&node.right_node);
-      println!("  mov %rax, {}", self.get_address(&left.name));
-    } else {
-      self.c_(&node.right_node);
-      self.push_reg();
-      self.emit_address(&node.left_node);
-      self.emit_store();
+      if left.is_local {
+        self.c_(&node.right_node);
+        println!("  mov %rax, {}", self.get_address(&left.name));
+        self.emit_comment("(end assignment)");
+        return;
+      }
     }
+    self.c_(&node.right_node);
+    self.push_reg();
+    self.emit_address(&node.left_node);
+    self.emit_store();
     self.emit_comment("(end assignment)");
   }
 
@@ -529,9 +563,8 @@ impl<'a> Compiler<'a> {
 
   fn c_prog(&mut self, node: &AstNode) {
     let node = unbox!(ProgramNode, node);
-    for decl in &node.decls {
-      self.c_(decl);
-    }
+    self.emit_data(node);
+    self.emit_text(node);
   }
 
   fn c_(&mut self, node: &AstNode) {
@@ -556,7 +589,8 @@ impl<'a> Compiler<'a> {
     }
   }
 
-  pub fn compile(&mut self) -> Result<i32, &'a str> {
+  pub fn compile(&mut self, dis_tc: bool) -> Result<i32, &'a str> {
+    // lex and parse
     let res = self.setup();
     if res.is_err() {
       return Err(res.unwrap_err());
@@ -564,9 +598,10 @@ impl<'a> Compiler<'a> {
     let root = res.unwrap();
     // semantic analysis
     let mut sem = SemAnalyzer::new();
-    if let Err(msg) = sem.analyze(&root) {
+    if let Err(msg) = sem.analyze(&root, dis_tc) {
       return Err(msg);
     }
+    // compile
     self.tc.replace(TypeCheck::new(sem.move_tab()));
     self.c_(&root);
     Ok(0)

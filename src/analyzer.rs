@@ -1,5 +1,5 @@
 use crate::ast::{AstNode, BlockStmtNode, VarDeclNode};
-use crate::types::Type;
+use crate::types::{Type, TypeCheck};
 use crate::unbox;
 use std::borrow::{Borrow, BorrowMut};
 use std::collections::{BTreeMap, VecDeque};
@@ -201,7 +201,17 @@ impl<'a> SemAnalyzer<'a> {
   }
 
   fn sem_var_decl(&mut self, node: &VarDeclNode) {
-    // todo: need to figure out how to work with scoped variables
+    // todo: need to check for duplicate symbols
+    if !node.is_local {
+      // pretend the variable is a function and store it in the symbol table
+      // but its symbol stack would always be empty
+      self
+        .sym_tab
+        .as_mut()
+        .unwrap()
+        .new_func_tab(&node.name, &node.ty.borrow());
+      return;
+    }
     let (_, fn_sym) = self
       .curr_tab()
       .expect("Undefined function access in sym_tab");
@@ -278,19 +288,24 @@ impl<'a> SemAnalyzer<'a> {
   // (e.g. use of undefined variables, variables defined multiple times in the same scope, etc.)
   // handle typechecking
 
-  pub fn analyze(&mut self, root: &AstNode) -> Result<(), &'a str> {
+  pub fn analyze(
+    &mut self,
+    root: &AstNode,
+    dis_tc: bool,
+  ) -> Result<(), &'a str> {
     // build the symbol table, and perform semantic analysis
     self.sem(root);
     // return if we're already at error
     if self.at_error {
       return Err(self.error_msg.unwrap());
     }
-    // todo: restore
-    // type-check
-    // let mut tc = TypeCheck::new(self.move_tab());
-    // let res = tc.typecheck(root);
-    // self.sym_tab.replace(tc.sym_tab); // collect back
-    // res
+    if !dis_tc {
+      // type-check
+      let mut tc = TypeCheck::new(self.move_tab());
+      let res = tc.typecheck(root);
+      self.sym_tab.replace(tc.sym_tab); // collect back
+      return res;
+    }
     Ok(())
   }
 }

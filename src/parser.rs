@@ -17,6 +17,7 @@ pub(crate) struct Parser<'a, 'b> {
   current_token: Token<'a>,
   previous_token: Token<'a>,
   locals: Vec<(Rc<Type>, String)>,
+  globals: Vec<(Rc<Type>, String)>,
 }
 
 impl<'a, 'b> Parser<'a, 'b> {
@@ -26,6 +27,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       current_token: Token::default(),
       previous_token: Token::default(),
       locals: vec![],
+      globals: vec![],
     }
   }
 
@@ -87,10 +89,15 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
   }
 
-  fn find_var_type(&self, name: &str) -> Rc<Type> {
+  fn find_var_type(&self, name: &str) -> (Rc<Type>, bool) {
     for (var_ty, var_name) in &self.locals {
       if var_name == name {
-        return var_ty.clone();
+        return (var_ty.clone(), true);
+      }
+    }
+    for (var_ty, var_name) in &self.globals {
+      if var_name == name {
+        return (var_ty.clone(), false);
       }
     }
     // todo: need to handle this
@@ -107,8 +114,9 @@ impl<'a, 'b> Parser<'a, 'b> {
 
   fn variable(&mut self) -> AstNode {
     let name: String = self.previous_token.value().into();
-    let ty = RefCell::new(self.find_var_type(&name));
-    AstNode::VarNode(VarNode { name, ty })
+    let (ty, is_local) = self.find_var_type(&name);
+    let ty = RefCell::new(ty);
+    AstNode::VarNode(VarNode { name, ty, is_local })
   }
 
   fn call(&mut self, name: &str) -> AstNode {
@@ -355,6 +363,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         ty: RefCell::new(ty),
         name,
         value: None,
+        is_local: true,
       });
       i += 1;
     }
@@ -401,6 +410,9 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn declaration(&mut self) -> AstNode {
     // declaration = declspec (declarator ("=" expr)? ("," declarator ("=" expr)?)*)? ";"
     let base_ty = self.declspec();
+    if self.match_tok(TokenType::SEMI_COLON) {
+      self.error(Some(ViError::EP001.to_info()));
+    }
     let mut decls = vec![];
     let mut i = 0;
     while !self.match_tok(TokenType::SEMI_COLON) {
@@ -416,6 +428,7 @@ impl<'a, 'b> Parser<'a, 'b> {
           name,
           ty,
           value: None,
+          is_local: true,
         });
         continue;
       }
@@ -424,6 +437,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         name,
         ty,
         value: Some(Box::new(value)),
+        is_local: true,
       });
       i += 1;
     }
@@ -533,11 +547,44 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
   }
 
+  fn global_var_decl(
+    &mut self,
+    base_ty: Type,
+    ty: Type,
+    name: String,
+  ) -> AstNode {
+    let mut vars = vec![];
+    let ty = Rc::new(ty);
+    self.globals.push((ty.clone(), name.clone()));
+    vars.push(VarDeclNode {
+      name,
+      ty: RefCell::new(ty),
+      value: None,
+      is_local: false,
+    });
+    while !self.match_tok(TokenType::SEMI_COLON) {
+      self.consume(TokenType::COMMA);
+      let ((ty, _), name) = self.declarator(&base_ty);
+      let ty = Rc::new(ty);
+      self.globals.push((ty.clone(), name.clone()));
+      vars.push(VarDeclNode {
+        name,
+        ty: RefCell::new(ty),
+        value: None,
+        is_local: false,
+      });
+    }
+    AstNode::VarDeclListNode(VarDeclListNode { decls: vars })
+  }
+
   fn function(&mut self) -> AstNode {
     // create new fn state
     self.enter();
-    let ty = self.declspec();
-    let ((ty, params), name) = self.declarator(&ty);
+    let base_ty = self.declspec();
+    let ((ty, params), name) = self.declarator(&base_ty);
+    if ty.kind.get() != TypeLiteral::TYPE_FUNC {
+      return self.global_var_decl(base_ty, ty, name);
+    }
     self.consume(TokenType::LEFT_CURLY);
     let list = self.compound_stmt();
     // leave fn state
@@ -557,11 +604,15 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   pub fn parse(&mut self) -> AstNode {
+    // program = (function-definition | global-variable)*
     self.advance();
     let mut decls = vec![];
     while !self.match_tok(TokenType::EOF) {
       decls.push(self.function());
     }
-    AstNode::ProgramNode(ProgramNode { decls })
+    AstNode::ProgramNode(ProgramNode {
+      decls,
+      globals: std::mem::take(&mut self.globals),
+    })
   }
 }

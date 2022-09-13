@@ -13,7 +13,7 @@ assert() {
   expected="$1"
   input="samples/$2"
 
-  ./target/debug/violet "$input" > tmp/out.asm || exit
+  ./target/debug/violet "$input" > tmp/out.asm 2>tmp/error || exit
   gcc tmp/out.asm tmp/out2.o -o tmp/out
   ./tmp/out
   actual="$?"
@@ -136,4 +136,15 @@ assert 9 '99.c'
 assert 8 '100.c'
 assert 8 '101.c'
 assert 1 '102.c'
+assert 0 '103.c'
+assert 3 '104.c'
+assert 7 '105.c'
+assert 7 '106.c'
+assert 0 '107.c'
+assert 1 '108.c'
+assert 2 '109.c'
+assert 3 '110.c'
+
+assert 8 '111.c'
+assert 32 '112.c'
 echo OK
