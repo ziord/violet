@@ -1,6 +1,7 @@
 use crate::lexer::OpType;
 use crate::types::Type;
 use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
 use std::rc::Rc;
 
 #[derive(Debug)]
@@ -110,8 +111,9 @@ pub struct SizeofNode {
 
 #[derive(Debug)]
 pub struct ProgramNode {
-  pub(crate) decls: Vec<AstNode>,
-  pub(crate) globals: Vec<(Rc<Type>, String)>,
+  pub(crate) decls: VecDeque<AstNode>,
+  // type, name, init_data (string literal)
+  pub(crate) globals: Vec<(Rc<Type>, String, Option<String>)>,
 }
 
 #[derive(Debug)]

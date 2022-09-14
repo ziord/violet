@@ -35,6 +35,7 @@ pub enum TokenType {
   WHILE,             // while
   INT,               // int
   CHAR,              // char
+  STRING,            // "..."
   BOF,               // |-
   EOF,               // -|
   ERROR,
@@ -113,6 +114,7 @@ impl Display for TokenType {
       TokenType::WHILE => write!(f, "TOK<WHILE>"),
       TokenType::INT => write!(f, "TOK<INT>"),
       TokenType::CHAR => write!(f, "TOK<CHAR>"),
+      TokenType::STRING => write!(f, "TOK<STRING>"),
       TokenType::LEFT_CURLY => write!(f, "TOK<LEFT-CURLY>"),
       TokenType::RIGHT_CURLY => write!(f, "TOK<RIGHT-CURLY>"),
     }
@@ -335,6 +337,22 @@ impl<'a, 'b> Lexer<'a, 'b> {
     return tok;
   }
 
+  fn lex_string(&mut self) -> Token<'a> {
+    // exclude starting '"'
+    self.start = self.current;
+    let bytes = self.src.as_bytes();
+    while bytes[self.current] as char != '"' {
+      let c = bytes[self.current] as char;
+      if c == '\n' || self.at_end() {
+        return self.error_token(ViError::EL002);
+      }
+      self.advance();
+    }
+    let token = self.create_token(TokenType::STRING);
+    self.advance(); // skip the closing '"'
+    token
+  }
+
   pub fn get_token(&mut self) -> Token<'a> {
     self.skip_whitespace();
     if self.at_end() {
@@ -363,6 +381,7 @@ impl<'a, 'b> Lexer<'a, 'b> {
       ';' => self.create_token(TokenType::SEMI_COLON),
       '{' => self.create_token(TokenType::LEFT_CURLY),
       '}' => self.create_token(TokenType::RIGHT_CURLY),
+      '"' => self.lex_string(),
       '<' => {
         if self.peek(None) == '=' {
           self.advance();

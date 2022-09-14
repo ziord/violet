@@ -156,4 +156,13 @@ assert 1 '116.c'
 assert 10 '117.c'
 assert 1 '118.c'
 
+assert 0 '119.c'
+assert 1 '120.c'
+
+assert 97 '121.c'
+assert 98 '122.c'
+assert 99 '123.c'
+assert 0 '124.c'
+assert 4 '125.c'
+
 echo OK

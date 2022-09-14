@@ -245,16 +245,22 @@ impl<'a> Compiler<'a> {
     println!("  .data");
     print!("  .global ");
     let len = node.globals.len();
-    for (i, (_, name)) in node.globals.iter().enumerate() {
+    for (i, (_, name, _)) in node.globals.iter().enumerate() {
       print!("{}", name);
       if i != len - 1 {
         print!(", ");
       }
     }
     println!();
-    for (ty, name) in &node.globals {
+    for (ty, name, data) in &node.globals {
       println!("{}:", name);
-      println!("  .zero {}", ty.size);
+      if let Some(dat) = data {
+        for val in dat.as_str().as_bytes() {
+          println!("  .byte {}", val);
+        }
+      } else {
+        println!("  .zero {}", ty.size);
+      }
     }
   }
 
@@ -521,6 +527,9 @@ impl<'a> Compiler<'a> {
   }
 
   fn c_var_decl(&mut self, node: &VarDeclNode) {
+    if !node.is_local {
+      return;
+    }
     if let Some(val) = &node.value {
       let right_node = val;
       let left_node = Box::new(AstNode::VarNode(VarNode {

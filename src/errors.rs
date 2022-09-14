@@ -2,6 +2,7 @@
 pub enum ViError {
   E0000, // placeholder
   EL001, // unrecognized token
+  EL002, // unterminated string
   EP001, // mismatch token
   EP002, // missing type
 }
@@ -37,10 +38,15 @@ impl ViError {
         "Unrecognized token",
         "The token found at this context is illegal/unknown."
       ),
+      ViError::EL002 => info!(
+        self,
+        "Unterminated string", "The string should be closed with a '\"'."
+      ),
       ViError::EP001 => info!(self, "Token mismatch", ""),
       ViError::EP002 => info!(
         self,
-        "Missing type", "Variable referenced before declaration"
+        "Missing type: variable referenced before declaration",
+        "Consider declaring the variable before use."
       ),
     }
   }

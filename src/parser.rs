@@ -8,6 +8,7 @@ use crate::errors::{ErrorInfo, ViError};
 use crate::lexer::{Lexer, OpType, Token, TokenType};
 use crate::types::{TParam, Type, TypeLiteral};
 use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
 use std::process::exit;
 use std::rc::Rc;
 
@@ -17,7 +18,8 @@ pub(crate) struct Parser<'a, 'b> {
   current_token: Token<'a>,
   previous_token: Token<'a>,
   locals: Vec<(Rc<Type>, String)>,
-  globals: Vec<(Rc<Type>, String)>,
+  // type, name, init_data (string literal)
+  globals: Vec<(Rc<Type>, String, Option<String>)>,
 }
 
 impl<'a, 'b> Parser<'a, 'b> {
@@ -55,6 +57,10 @@ impl<'a, 'b> Parser<'a, 'b> {
 
   fn leave(&mut self, _fn_name: &String) {
     // todo
+  }
+
+  fn gen_id(&self) -> String {
+    format!(".L.glob.{}", self.globals.len())
   }
 
   fn advance(&mut self) {
@@ -95,7 +101,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         return (var_ty.clone(), true);
       }
     }
-    for (var_ty, var_name) in &self.globals {
+    for (var_ty, var_name, _data) in &self.globals {
       if var_name == name {
         return (var_ty.clone(), false);
       }
@@ -144,7 +150,7 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn primary(&mut self) -> AstNode {
-    // primary = "(" expr ")" | "sizeof" unary | ident args? | num
+    // primary = "(" expr ")" | "sizeof" unary | ident args? | num | str
     // args = "(" ")"
     if self.match_tok(TokenType::LEFT_BRACKET) {
       let node = self.expr();
@@ -162,6 +168,21 @@ impl<'a, 'b> Parser<'a, 'b> {
       AstNode::SizeofNode(SizeofNode {
         size: Cell::new(0),
         node: Box::new(self.unary()),
+      })
+    } else if self.match_tok(TokenType::STRING) {
+      // create a new global variable, and associate it with the string
+      let name = self.gen_id();
+      let mut string: String = self.previous_token.value().into();
+      string.push('\0');
+      let ty = Rc::new(Type::array_of(
+        Type::new(TypeLiteral::TYPE_CHAR),
+        string.len() as u32,
+      ));
+      self.globals.push((ty.clone(), name.clone(), Some(string)));
+      AstNode::VarNode(VarNode {
+        name,
+        ty: RefCell::new(ty),
+        is_local: false,
       })
     } else {
       self.num()
@@ -565,7 +586,7 @@ impl<'a, 'b> Parser<'a, 'b> {
   ) -> AstNode {
     let mut vars = vec![];
     let ty = Rc::new(ty);
-    self.globals.push((ty.clone(), name.clone()));
+    self.globals.push((ty.clone(), name.clone(), None));
     vars.push(VarDeclNode {
       name,
       ty: RefCell::new(ty),
@@ -576,7 +597,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       self.consume(TokenType::COMMA);
       let ((ty, _), name) = self.declarator(&base_ty);
       let ty = Rc::new(ty);
-      self.globals.push((ty.clone(), name.clone()));
+      self.globals.push((ty.clone(), name.clone(), None));
       vars.push(VarDeclNode {
         name,
         ty: RefCell::new(ty),
@@ -616,9 +637,20 @@ impl<'a, 'b> Parser<'a, 'b> {
   pub fn parse(&mut self) -> AstNode {
     // program = (function-definition | global-variable)*
     self.advance();
-    let mut decls = vec![];
+    let mut decls = VecDeque::new();
     while !self.match_tok(TokenType::EOF) {
-      decls.push(self.function());
+      decls.push_back(self.function());
+    }
+    // hoist strings/static data
+    for (ty, name, data) in self.globals.iter().rev() {
+      if data.is_some() {
+        decls.push_front(AstNode::VarDeclNode(VarDeclNode {
+          name: name.clone(),
+          ty: RefCell::new(ty.clone()),
+          is_local: false,
+          value: None,
+        }));
+      }
     }
     AstNode::ProgramNode(ProgramNode {
       decls,
