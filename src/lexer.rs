@@ -64,6 +64,7 @@ pub struct Token<'a> {
   line: i32,
   column: i32,
   value: &'a str,
+  pub has_esc: bool,
   pub error_code: Option<ViError>,
 }
 
@@ -167,12 +168,14 @@ impl<'a> Token<'a> {
     t_type: TokenType,
     line: i32,
     column: i32,
+    esc: bool,
     error: Option<ViError>,
   ) -> Self {
     Self {
       t_type,
       line,
       column,
+      has_esc: esc,
       error_code: error,
       value,
     }
@@ -213,7 +216,7 @@ impl<'a> Display for Token<'a> {
 
 impl<'a> Default for Token<'a> {
   fn default() -> Self {
-    Token::new("", TokenType::BOF, 1, 0, None)
+    Token::new("", TokenType::BOF, 1, 0, false, None)
   }
 }
 
@@ -265,11 +268,11 @@ impl<'a, 'b> Lexer<'a, 'b> {
 
   fn create_token(&self, t_type: TokenType) -> Token<'a> {
     let val = &self.src[self.start..self.current];
-    Token::new(val, t_type, self.line, self.column, None)
+    Token::new(val, t_type, self.line, self.column, false, None)
   }
 
   fn eof_token(&self) -> Token<'a> {
-    Token::new("", TokenType::EOF, self.line, self.column, None)
+    Token::new("", TokenType::EOF, self.line, self.column, false, None)
   }
 
   fn error_token(&self, code: ViError) -> Token<'a> {
@@ -291,7 +294,7 @@ impl<'a, 'b> Lexer<'a, 'b> {
     }
     match i {
       // todo: improve
-      Some(idx) => self.src.as_bytes()[idx] as char,
+      Some(idx) => self.src.as_bytes()[self.current + idx] as char,
       None => self.src.as_bytes()[self.current] as char,
     }
   }
@@ -341,14 +344,18 @@ impl<'a, 'b> Lexer<'a, 'b> {
     // exclude starting '"'
     self.start = self.current;
     let bytes = self.src.as_bytes();
+    let mut has_esc = false;
     while bytes[self.current] as char != '"' {
-      let c = bytes[self.current] as char;
-      if c == '\n' || self.at_end() {
+      let ch = bytes[self.current] as char;
+      if ch == '\n' || self.at_end() {
         return self.error_token(ViError::EL002);
+      } else if ch == '\\' {
+        has_esc = true;
       }
       self.advance();
     }
-    let token = self.create_token(TokenType::STRING);
+    let mut token = self.create_token(TokenType::STRING);
+    token.has_esc = has_esc;
     self.advance(); // skip the closing '"'
     token
   }

@@ -110,6 +110,42 @@ impl<'a, 'b> Parser<'a, 'b> {
     panic!("variable '{}' is not defined in the current scope", name)
   }
 
+  fn process_str_literal(&self) -> String {
+    if !self.previous_token.has_esc {
+      let mut s: String = self.previous_token.value().into();
+      s.push('\0');
+      return s;
+    }
+    let bytes = self.previous_token.value().as_bytes();
+    let mut string = String::new();
+    let mut i = 0;
+    while i < bytes.len() && bytes[i] as char != '"' {
+      let ch = bytes[i] as char;
+      if ch == '\\' {
+        match bytes[i + 1] as char {
+          'a' => string.push(7 as char),
+          'b' => string.push(8 as char),
+          'f' => string.push(12 as char),
+          'n' => string.push('\n'),
+          'r' => string.push('\r'),
+          't' => string.push('\t'),
+          'v' => string.push(11 as char),
+          // [GNU] \e for the ASCII escape character is a GNU C extension.
+          'e' => string.push(27 as char),
+          _ => {
+            string.push(bytes[i + 1] as char);
+          }
+        }
+        i += 1;
+      } else {
+        string.push(ch);
+      }
+      i += 1;
+    }
+    string.push('\0');
+    string
+  }
+
   fn is_typename(&self) -> bool {
     match self.current_token.t_type() {
       TokenType::INT | TokenType::CHAR => true,
@@ -172,8 +208,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     } else if self.match_tok(TokenType::STRING) {
       // create a new global variable, and associate it with the string
       let name = self.gen_id();
-      let mut string: String = self.previous_token.value().into();
-      string.push('\0');
+      let string = self.process_str_literal();
       let ty = Rc::new(Type::array_of(
         Type::new(TypeLiteral::TYPE_CHAR),
         string.len() as u32,

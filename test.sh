@@ -165,4 +165,22 @@ assert 99 '123.c'
 assert 0 '124.c'
 assert 4 '125.c'
 
+assert 7 '126.c'
+assert 8 '127.c'
+assert 9 '128.c'
+assert 10 '129.c'
+assert 11 '130.c'
+assert 12 '131.c'
+assert 13 '132.c'
+assert 27 '133.c'
+
+assert 106 '134.c'
+assert 107 '135.c'
+assert 108 '136.c'
+
+assert 7 '137.c'
+assert 120 '138.c'
+assert 10 '139.c'
+assert 121 '140.c'
+
 echo OK
