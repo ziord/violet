@@ -122,6 +122,23 @@ impl<'a, 'b> Parser<'a, 'b> {
     while i < bytes.len() && bytes[i] as char != '"' {
       let ch = bytes[i] as char;
       if ch == '\\' {
+        // check for octal sequence
+        let mut oc = bytes[i + 1] as char;
+        if '0' <= oc && oc <= '7' {
+          let mut c = oc as u32 - '0' as u32;
+          let mut j = 0;
+          i += 2;
+          while j < 2 && i < bytes.len() {
+            oc = bytes[i] as char;
+            if '0' <= oc && oc <= '7' {
+              c = (c << 3) + (oc as u32 - '0' as u32);
+              i += 1;
+            }
+            j += 1;
+          }
+          string.push(char::from_u32(c).expect("Failed to convert u32 to char"));
+          continue;
+        }
         match bytes[i + 1] as char {
           'a' => string.push(7 as char),
           'b' => string.push(8 as char),

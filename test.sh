@@ -183,4 +183,9 @@ assert 120 '138.c'
 assert 10 '139.c'
 assert 121 '140.c'
 
+assert 0 '141.c'
+assert 16 '142.c'
+assert 65 '143.c'
+assert 104 '144.c'
+
 echo OK
