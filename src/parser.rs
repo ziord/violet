@@ -110,6 +110,16 @@ impl<'a, 'b> Parser<'a, 'b> {
     panic!("variable '{}' is not defined in the current scope", name)
   }
 
+  fn convert_hex(&self, c: char) -> u32 {
+    if '0' <= c && c <= '9' {
+      return c as u32 - '0' as u32;
+    }
+    if 'a' <= c && c <= 'f' {
+      return c as u32 - 'a' as u32 + 10;
+    }
+    c as u32 - 'A' as u32 + 10
+  }
+
   fn process_str_literal(&self) -> String {
     if !self.previous_token.has_esc {
       let mut s: String = self.previous_token.value().into();
@@ -136,7 +146,28 @@ impl<'a, 'b> Parser<'a, 'b> {
             }
             j += 1;
           }
-          string.push(char::from_u32(c).expect("Failed to convert u32 to char"));
+          unsafe {
+            string.as_mut_vec().extend_from_slice(&[c as u8]);
+          }
+          continue;
+        } else if oc == 'x' {
+          // check for hex sequence
+          if i + 2 >= bytes.len()
+            || !char::is_ascii_hexdigit(&(bytes[i + 2] as char))
+          {
+            self.error(Some(ViError::EP003.to_info()));
+          }
+          i += 2;
+          let mut c = 0;
+          while i < bytes.len()
+            && char::is_ascii_hexdigit(&(bytes[i] as char))
+          {
+            c = (c << 4) + self.convert_hex(bytes[i] as char);
+            i += 1;
+          }
+          unsafe {
+            string.as_mut_vec().extend_from_slice(&[c as u8]);
+          }
           continue;
         }
         match bytes[i + 1] as char {

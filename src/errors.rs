@@ -5,6 +5,7 @@ pub enum ViError {
   EL002, // unterminated string
   EP001, // mismatch token
   EP002, // missing type
+  EP003, // invalid hex sequence
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +48,11 @@ impl ViError {
         self,
         "Missing type: variable referenced before declaration",
         "Consider declaring the variable before use."
+      ),
+      ViError::EP003 => info!(
+        self,
+        "Invalid hex escape sequence",
+        "A hex escape sequence is of the form \\x<nnn>, where <nnn> is 0-9 | a-f | A-F."
       ),
     }
   }

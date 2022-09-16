@@ -188,4 +188,8 @@ assert 16 '142.c'
 assert 65 '143.c'
 assert 104 '144.c'
 
+assert 0 '145.c'
+assert 119 '146.c'
+assert 165 '147.c'
+assert 255 '148.c'
 echo OK
