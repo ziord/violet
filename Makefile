@@ -6,6 +6,7 @@ test:
 
 test-sh:
 	./test.sh
+	./test-driver.sh
 
 clean:
 	rm -r target

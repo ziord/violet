@@ -342,7 +342,7 @@ impl<'a, 'b> Lexer<'a, 'b> {
 
   fn lex_string(&mut self) -> Token<'a> {
     // exclude starting '"'
-    self.start = self.current;
+    let start = self.current;
     let bytes = self.src.as_bytes();
     let mut has_esc = false;
     while bytes[self.current] as char != '"' {
@@ -354,6 +354,7 @@ impl<'a, 'b> Lexer<'a, 'b> {
       }
       self.advance();
     }
+    self.start = start;
     let mut token = self.create_token(TokenType::STRING);
     token.has_esc = has_esc;
     self.advance(); // skip the closing '"'

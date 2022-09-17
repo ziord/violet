@@ -142,3 +142,14 @@ pub enum AstNode {
   StmtExprNode(StmtExprNode),
   ProgramNode(ProgramNode),
 }
+
+#[macro_export]
+macro_rules! unbox {
+  ($tt: tt, $nd: expr) => {
+    if let AstNode::$tt(v_) = $nd {
+      v_
+    } else {
+      panic!("Couldn't unbind AstNode::{}", stringify!($tt));
+    }
+  };
+}

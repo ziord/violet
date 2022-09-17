@@ -9,55 +9,49 @@ mod util;
 
 use std::env;
 
-fn print_help() {
-  println!(
-    "{}",
-    "This is Violet, a mini C compiler.
-To compile your C file(s), do: violet file.c"
-  )
+fn print_usage() {
+  println!("This is Violet, a mini C compiler.");
+  println!("Usage: violet [-o <output-file>] <input-file>");
+  util::exit(0);
 }
 
-pub(crate) fn compile_file(filename: &str, dis_tc: bool) {
-  // todo: remove dis_tc
-  let mut cmp = compiler::Compiler::new(filename);
-  let res = cmp.compile(dis_tc);
-  if let Ok(_v) = res {
-    // println!("Exited with code {v}"); // todo
-  } else {
-    eprintln!("Exited with error {}", res.unwrap_err());
+fn parse_args() {
+  // compiler::compile_file("./tmp/violet-test-gR7ZdP/empty.c", "", true);
+  // return;
+  let args: Vec<String> = env::args().collect();
+  if args.len() < 2 {
+    print_usage();
+  }
+  match args[1].as_str() {
+    "--help" => print_usage(),
+    "-" => {
+      // read from input
+      compiler::compile_file("<stdin>", "", true);
+    }
+    "-o" => {
+      // specifies output path
+      if args.len() < 3 {
+        util::error(
+          "Invalid number of arguments for '-o'. Expected output path.",
+          1,
+        );
+      } else if args.len() != 4 {
+        util::error("No input file specified", 1);
+      }
+      let in_file = if &args[3] == "-" { "<stdin>" } else { &args[3] };
+      compiler::compile_file(in_file, &args[2], true);
+    }
+    _ => {
+      if args.len() > 2 {
+        util::error("Invalid number of arguments", 1);
+      }
+      compiler::compile_file(&args[2], "", true)
+    }
   }
 }
 
 fn main() {
-  let args: Vec<String> = env::args().collect();
-  if args.len() != 2 {
-    eprintln!("Invalid number of arguments. Use --help for more info.");
-    return;
-  }
-  // let args = vec![String::from(""), String::from("samples/1.c")];
-  dbg!(&args);
-  match args[1].as_str() {
-    "--help" => print_help(),
-    "-" => compile_file("", true),
-    f @ _ => {
-      // disable typechecking for files (58-68).c & others
-      let p = f
-        .split("samples/")
-        .collect::<Vec<_>>()
-        .get(1)
-        .unwrap()
-        .split(".")
-        .collect::<Vec<_>>()
-        .get(0)
-        .unwrap()
-        .parse::<i32>()
-        .unwrap_or(0);
-      let dis_tc = (58..68).contains(&p)
-        || (74..=79).contains(&p)
-        || (85..=90).contains(&p);
-      compile_file(&args[1], dis_tc)
-    }
-  }
+  parse_args();
 }
 
 mod test {
@@ -69,8 +63,8 @@ mod test {
     let output = Command::new("./target/debug/violet")
       .output()
       .expect("Failed to execute 'violet' command");
-    let stdout = String::from_utf8_lossy(&output.stderr);
-    assert!(stdout.contains("Use --help"));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Usage:"));
 
     // help arg
     let output = Command::new("./target/debug/violet")

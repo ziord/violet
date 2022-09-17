@@ -6,11 +6,15 @@ use crate::ast::{
 use crate::lexer::OpType;
 use crate::parser::Parser;
 use crate::types::{Type, TypeCheck, TypeLiteral};
-use crate::{util, vprint, vprintln};
+use crate::unbox;
+use crate::util;
 use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::io;
 use std::rc::Rc;
+
+const V_STDIN: &str = "<stdin>";
 
 #[derive(Debug)]
 struct GenState {
@@ -49,9 +53,9 @@ impl GenState {
   }
 }
 
-#[derive(Debug)]
 pub struct Compiler<'a> {
-  filename: &'a str,
+  in_path: &'a str,
+  out_file: Box<dyn io::Write>,
   depth: i32,
   gen: GenState,
   arg_regs64: Vec<&'a str>,
@@ -59,21 +63,33 @@ pub struct Compiler<'a> {
   tc: Option<TypeCheck<'a>>,
 }
 
-#[macro_export]
-macro_rules! unbox {
-  ($tt: tt, $nd: expr) => {
-    if let AstNode::$tt(v_) = $nd {
-      v_
-    } else {
-      panic!("Couldn't unbind AstNode::{}", stringify!($tt));
-    }
+macro_rules! vprint {
+  ($sf:ident) => {
+    write!($sf.out_file).expect("Failed to write to file -")
   };
+  ($sf:ident, $($tok:tt)*) => {
+    write!($sf.out_file, $($tok)*).expect("Failed to write to file -*")
+  }
+}
+
+macro_rules! vprintln {
+  ($sf:ident) => {
+    writeln!($sf.out_file).expect("Failed to writeln to file -")
+  };
+  ($sf:ident, $($tok:tt)*) => {
+    writeln!($sf.out_file, $($tok)*).expect("Failed to writeln to file -*")
+  }
 }
 
 impl<'a> Compiler<'a> {
-  pub fn new(filename: &'a str) -> Self {
+  pub fn new(in_file: &'a str, out_file: &'a str) -> Self {
     Self {
-      filename,
+      in_path: in_file,
+      out_file: if out_file.is_empty() {
+        Box::new(io::stdout())
+      } else {
+        Box::new(util::open_file(out_file))
+      },
       depth: 0,
       gen: GenState::default(),
       arg_regs64: vec!["rdi", "rsi", "rdx", "rcx", "r8", "r9"],
@@ -83,10 +99,10 @@ impl<'a> Compiler<'a> {
   }
 
   fn setup(&self) -> Result<AstNode, &'a str> {
-    let content = if self.filename.is_empty() {
+    let content = if self.in_path == V_STDIN {
       util::read_stdin()
     } else {
-      util::read_file(self.filename)
+      util::read_file(self.in_path)
     };
     if content.is_ok() {
       let content = content.unwrap();
@@ -100,12 +116,12 @@ impl<'a> Compiler<'a> {
   ///* Codegen Utilities
   ///********************
   fn push_reg(&mut self) {
-    vprintln!("  push %rax");
+    vprintln!(self, "  push %rax");
     self.depth += 1;
   }
 
   fn pop_reg(&mut self, reg: &str) {
-    vprintln!("  pop %{}", reg);
+    vprintln!(self, "  pop %{}", reg);
     self.depth -= 1;
   }
 
@@ -153,29 +169,29 @@ impl<'a> Compiler<'a> {
   ///********************
   ///* Emitters
   ///********************
-  fn emit_comment(&self, comment: &str) {
-    vprintln!("# {comment}");
+  fn emit_comment(&mut self, comment: &str) {
+    vprintln!(self, "# {comment}");
   }
 
-  fn emit_label(&self, txt: &str) {
-    vprintln!("{txt}:");
+  fn emit_label(&mut self, txt: &str) {
+    vprintln!(self, "{txt}:");
   }
 
-  fn emit_jmp(&self, txt: &str) {
-    vprintln!("  jmp {}", txt);
+  fn emit_jmp(&mut self, txt: &str) {
+    vprintln!(self, "  jmp {}", txt);
   }
 
   fn emit_prologue(&mut self, func: &FunctionNode) {
     self.emit_comment("(begin prologue)");
     // set up frame pointer
-    vprintln!("  .global _{}", func.name);
-    vprintln!("  .text");
-    vprintln!("_{}:", func.name);
-    vprintln!("  push %rbp");
-    vprintln!("  mov %rsp, %rbp");
+    vprintln!(self, "  .global _{}", func.name);
+    vprintln!(self, "  .text");
+    vprintln!(self, "_{}:", func.name);
+    vprintln!(self, "  push %rbp");
+    vprintln!(self, "  mov %rsp, %rbp");
     // reserve space for locals
     if func.stack_size.get() > 0 {
-      vprintln!("  sub ${}, %rsp", func.stack_size.get());
+      vprintln!(self, "  sub ${}, %rsp", func.stack_size.get());
     }
     self.gen.stack_size = func.stack_size.get();
     self.emit_comment("(end prologue)");
@@ -186,10 +202,10 @@ impl<'a> Compiler<'a> {
     self.emit_label(&format!(".L.return._{}", self.gen.current_fn()));
     // reset the stack pointer to its original value
     // since (rbp holds the original value,, see prolog())
-    vprintln!("  mov %rbp, %rsp");
+    vprintln!(self, "  mov %rbp, %rsp");
     // pop frame pointer
-    vprintln!("  pop %rbp");
-    vprintln!("  ret");
+    vprintln!(self, "  pop %rbp");
+    vprintln!(self, "  ret");
     self.emit_comment("(end epilogue)");
   }
 
@@ -197,9 +213,9 @@ impl<'a> Compiler<'a> {
     match node {
       AstNode::VarNode(n) => {
         if n.is_local {
-          vprintln!("  lea {}, %rax", self.get_address(&n.name));
+          vprintln!(self, "  lea {}, %rax", self.get_address(&n.name));
         } else {
-          vprintln!("  lea {}(%rip), %rax", n.name);
+          vprintln!(self, "  lea {}(%rip), %rax", n.name);
         }
       }
       AstNode::UnaryNode(ref addr_node) => {
@@ -221,9 +237,9 @@ impl<'a> Compiler<'a> {
     self.pop_reg("rdi");
     // store val in memory location identified by rax
     if ty.size == 1 {
-      vprintln!("  mov %al, (%rdi)");
+      vprintln!(self, "  mov %al, (%rdi)");
     } else {
-      vprintln!("  mov %rax, (%rdi)");
+      vprintln!(self, "  mov %rax, (%rdi)");
     }
   }
 
@@ -236,9 +252,9 @@ impl<'a> Compiler<'a> {
     if ty.size == 1 {
       // load a value at %rax in memory, and sign-extend it to 64 bits
       // storing it in %rax
-      vprintln!("  movsbq (%rax), %rax");
+      vprintln!(self, "  movsbq (%rax), %rax");
     } else {
-      vprintln!("  mov (%rax), %rax");
+      vprintln!(self, "  mov (%rax), %rax");
     }
   }
 
@@ -246,24 +262,24 @@ impl<'a> Compiler<'a> {
     if node.globals.is_empty() {
       return;
     }
-    vprintln!("  .data");
-    vprint!("  .global ");
+    vprintln!(self, "  .data");
+    vprint!(self, "  .global ");
     let len = node.globals.len();
     for (i, (_, name, _)) in node.globals.iter().enumerate() {
-      vprint!("{}", name);
+      vprint!(self, "{}", name);
       if i != len - 1 {
-        vprint!(", ");
+        vprint!(self, ", ");
       }
     }
-    vprintln!();
+    vprintln!(self);
     for (ty, name, data) in &node.globals {
-      vprintln!("{}:", name);
+      vprintln!(self, "{}:", name);
       if let Some(dat) = data {
         for val in dat.as_str().as_bytes() {
-          vprintln!("  .byte {}", val);
+          vprintln!(self, "  .byte {}", val);
         }
       } else {
-        vprintln!("  .zero {}", ty.size);
+        vprintln!(self, "  .zero {}", ty.size);
       }
     }
   }
@@ -279,7 +295,7 @@ impl<'a> Compiler<'a> {
   ///***********************
   fn c_number(&mut self, node: &AstNode) {
     let node = unbox!(NumberNode, node);
-    vprintln!("  mov ${}, %rax", node.value);
+    vprintln!(self, "  mov ${}, %rax", node.value);
   }
 
   fn c_var(&mut self, node: &AstNode) {
@@ -339,32 +355,32 @@ impl<'a> Compiler<'a> {
     if node.op == OpType::PLUS {
       // ptr + int (int + ptr) -> ptr + (int * ptr_size)
       self.c_(right);
-      vprintln!("  imul ${}, %rax, %rax", ptr_size);
+      vprintln!(self, "  imul ${}, %rax, %rax", ptr_size);
       self.push_reg();
       self.c_(left);
       self.pop_reg("rdi");
       // %rax -> %rax + %rdi
-      vprintln!("  add %rdi, %rax"); // left + right
+      vprintln!(self, "  add %rdi, %rax"); // left + right
     } else {
       if right_ty.kind.get() == TypeLiteral::TYPE_INT {
         // ptr - int -> ptr - (int * ptr_size)
         self.c_(right);
-        vprintln!("  imul ${}, %rax, %rax", ptr_size);
+        vprintln!(self, "  imul ${}, %rax, %rax", ptr_size);
         self.push_reg();
         self.c_(left);
         self.pop_reg("rdi");
         // %rax -> %rax - %rdi
-        vprintln!("  sub %rdi, %rax"); // left - right
+        vprintln!(self, "  sub %rdi, %rax"); // left - right
       } else {
         // ptr - ptr -> (ptr - ptr) / ptr_size
         self.c_(right);
         self.push_reg();
         self.c_(left);
         self.pop_reg("rdi");
-        vprintln!("  sub %rdi, %rax"); // right -> left - right
-        vprintln!("  mov ${}, %rdi", ptr_size);
-        vprintln!("  cqo");
-        vprintln!("  idiv %rdi");
+        vprintln!(self, "  sub %rdi, %rax"); // right -> left - right
+        vprintln!(self, "  mov ${}, %rdi", ptr_size);
+        vprintln!(self, "  cqo");
+        vprintln!(self, "  idiv %rdi");
       }
     }
   }
@@ -392,46 +408,46 @@ impl<'a> Compiler<'a> {
     self.pop_reg("rdi"); // pop right into %rdi
     match node.op {
       OpType::MINUS => {
-        vprintln!("  sub %rdi, %rax");
+        vprintln!(self, "  sub %rdi, %rax");
       }
       OpType::PLUS => {
-        vprintln!("  add %rdi, %rax");
+        vprintln!(self, "  add %rdi, %rax");
       }
       OpType::DIV => {
-        vprintln!("  cqo"); // %rdx -> %rdx:%rax
-        vprintln!("  idiv %rdi");
+        vprintln!(self, "  cqo"); // %rdx -> %rdx:%rax
+        vprintln!(self, "  idiv %rdi");
       }
       OpType::MUL => {
-        vprintln!("  imul %rdi, %rax");
+        vprintln!(self, "  imul %rdi, %rax");
       }
       // relational ops
       _ => {
-        vprintln!("  cmp %rdi, %rax");
+        vprintln!(self, "  cmp %rdi, %rax");
         match node.op {
           OpType::LEQ => {
-            vprintln!("  setle %al");
+            vprintln!(self, "  setle %al");
           }
           OpType::GEQ => {
-            vprintln!("  setge %al");
+            vprintln!(self, "  setge %al");
           }
           OpType::LT => {
-            vprintln!("  setl %al");
+            vprintln!(self, "  setl %al");
           }
           OpType::GT => {
-            vprintln!("  setg %al");
+            vprintln!(self, "  setg %al");
           }
           OpType::EQQ => {
-            vprintln!("  sete %al");
+            vprintln!(self, "  sete %al");
           }
           OpType::NEQ => {
-            vprintln!("  setne %al");
+            vprintln!(self, "  setne %al");
           }
           _ => {
             panic!("Unrecognized operator '{}'", node.op);
           }
         }
         // move value in %al and zero-extend to a byte.
-        vprintln!("  movzb %al, %rax");
+        vprintln!(self, "  movzb %al, %rax");
       }
     }
     self.emit_comment("(end binary expr)");
@@ -445,7 +461,7 @@ impl<'a> Compiler<'a> {
       }
       OpType::MINUS => {
         self.c_(&*u_node.node);
-        vprintln!("  neg %rax");
+        vprintln!(self, "  neg %rax");
       }
       OpType::DEREF => {
         self.emit_comment("(begin deref)");
@@ -490,8 +506,8 @@ impl<'a> Compiler<'a> {
     let else_label = self.create_label("else", true);
     // jmp end_label
     let end_label = self.create_label("endif", false);
-    vprintln!("  cmp $0, %rax");
-    vprintln!("  je {}", else_label);
+    vprintln!(self, "  cmp $0, %rax");
+    vprintln!(self, "  je {}", else_label);
     self.c_(&node.if_block);
     self.emit_jmp(&end_label);
     self.emit_label(&else_label);
@@ -507,8 +523,8 @@ impl<'a> Compiler<'a> {
     // condition block
     self.emit_label(&cond_label);
     self.c_(&node.condition);
-    vprintln!("  cmp $0, %rax");
-    vprintln!("  je {}", end_label);
+    vprintln!(self, "  cmp $0, %rax");
+    vprintln!(self, "  je {}", end_label);
     // body block
     self.c_(&node.body);
     // incr block
@@ -523,8 +539,8 @@ impl<'a> Compiler<'a> {
     let end_label = self.create_label("while_end", false);
     self.emit_label(&cond_label);
     self.c_(&node.condition);
-    vprintln!("  cmp $0, %rax");
-    vprintln!("  je {}", end_label);
+    vprintln!(self, "  cmp $0, %rax");
+    vprintln!(self, "  je {}", end_label);
     self.c_(&node.body);
     self.emit_jmp(&cond_label);
     self.emit_label(&end_label);
@@ -561,9 +577,9 @@ impl<'a> Compiler<'a> {
     for i in (0..node.args.len()).rev() {
       self.pop_reg(self.arg_regs64[i]);
     }
-    vprintln!("  mov $0, %rax");
+    vprintln!(self, "  mov $0, %rax");
     // info: clang prepends "_" to function names
-    vprintln!("  call _{}", node.name);
+    vprintln!(self, "  call _{}", node.name);
   }
 
   fn c_sizeof(&mut self, node: &AstNode) {
@@ -592,7 +608,8 @@ impl<'a> Compiler<'a> {
     // params
     for i in 0..func.params.len() {
       let param = func.params.get(i).unwrap();
-      println!(
+      vprintln!(
+        self,
         "  mov %{}, {}",
         if param.ty.borrow().size == 1 {
           self.arg_regs8[i]
@@ -652,5 +669,14 @@ impl<'a> Compiler<'a> {
     self.tc.replace(TypeCheck::new(sem.move_tab()));
     self.c_(&root);
     Ok(0)
+  }
+}
+
+pub(crate) fn compile_file(in_file: &str, out_file: &str, dis_tc: bool) {
+  // todo: remove dis_tc
+  let mut cmp = Compiler::new(in_file, out_file);
+  let res = cmp.compile(dis_tc);
+  if let Err(_v) = res {
+    eprintln!("{}", _v);
   }
 }
