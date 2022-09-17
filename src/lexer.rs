@@ -275,7 +275,8 @@ impl<'a, 'b> Lexer<'a, 'b> {
     Token::new("", TokenType::EOF, self.line, self.column, false, None)
   }
 
-  fn error_token(&self, code: ViError) -> Token<'a> {
+  fn error_token(&mut self, code: ViError) -> Token<'a> {
+    self.at_error = true;
     let mut token = self.create_token(TokenType::ERROR);
     token.error_code = Some(code);
     return token;
@@ -299,16 +300,32 @@ impl<'a, 'b> Lexer<'a, 'b> {
     }
   }
 
-  fn skip_whitespace(&mut self) {
+  fn skip_whitespace(&mut self) -> Result<(), Token<'a>> {
     loop {
       match self.peek(None) {
         ' ' | '\n' | '\t' | '\r' => {
           self.advance();
         }
-        // todo: comment
-        _ => return,
+        '/' => {
+          let next = self.peek(Some(1));
+          if next == '/' {
+            let res = self.skip_comment(true);
+            if res.is_err() {
+              return res;
+            }
+          } else if next == '*' {
+            let res = self.skip_comment(false);
+            if res.is_err() {
+              return res;
+            }
+          } else {
+            break;
+          }
+        }
+        _ => break,
       }
     }
+    Ok(())
   }
 
   fn advance(&mut self) -> char {
@@ -320,6 +337,35 @@ impl<'a, 'b> Lexer<'a, 'b> {
     }
     self.current += 1;
     self.src.as_bytes()[self.current - 1] as char
+  }
+
+  fn skip_comment(&mut self, is_line: bool) -> Result<(), Token<'a>> {
+    // skip '/' or '*'
+    self.advance();
+    if is_line {
+      while self.peek(None) != '\n' {
+        if self.at_end() {
+          return Ok(());
+        }
+        self.advance();
+      }
+      // skip '\n'
+      self.advance();
+      return Ok(());
+    }
+    let mut closed = false;
+    while !self.at_end() {
+      if self.peek(None) == '*' && self.peek(Some(1)) == '/' {
+        closed = true;
+        self.current += 2;
+        break;
+      }
+      self.advance();
+    }
+    if !closed {
+      return Err(self.error_token(ViError::EL003));
+    }
+    Ok(())
   }
 
   fn lex_number(&mut self) -> Token<'a> {
@@ -362,11 +408,13 @@ impl<'a, 'b> Lexer<'a, 'b> {
   }
 
   pub fn get_token(&mut self) -> Token<'a> {
-    self.skip_whitespace();
+    if let Err(tok) = self.skip_whitespace() {
+      return tok;
+    }
     if self.at_end() {
       return self.eof_token();
     } else if self.at_error {
-      return self.error_token(ViError::EL001); // todo
+      return self.error_token(ViError::EL000);
     }
     self.start = self.current;
     let ch = self.advance();

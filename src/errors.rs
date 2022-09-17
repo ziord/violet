@@ -1,8 +1,10 @@
 #[derive(Debug, Copy, Clone)]
 pub enum ViError {
   E0000, // placeholder
+  EL000, // already at error
   EL001, // unrecognized token
   EL002, // unterminated string
+  EL003, // unterminated comment
   EP001, // mismatch token
   EP002, // missing type
   EP003, // invalid hex sequence
@@ -35,6 +37,11 @@ impl ViError {
   pub fn to_info(&self) -> ErrorInfo {
     match self {
       ViError::E0000 => info!(self, "", ""),
+      ViError::EL000 => info!(
+        self,
+        "Error previously encountered",
+        "Cannot continue due to previously encountered error(s)."
+      ),
       ViError::EL001 => info!(
         self,
         "Unrecognized token",
@@ -42,7 +49,11 @@ impl ViError {
       ),
       ViError::EL002 => info!(
         self,
-        "Unterminated string", "The string should be closed with a '\"'."
+        "Unterminated string", "A string should be closed with a '\"'."
+      ),
+      ViError::EL003 => info!(
+        self,
+        "Unterminated comment", "Multiline comments should be closed with a '*/'."
       ),
       ViError::EP001 => info!(self, "Token mismatch", ""),
       ViError::EP002 => info!(
