@@ -83,7 +83,11 @@ impl<'a> Compiler<'a> {
   }
 
   fn setup(&self) -> Result<AstNode, &'a str> {
-    let content = util::read_file(self.filename);
+    let content = if self.filename.is_empty() {
+      util::read_stdin()
+    } else {
+      util::read_file(self.filename)
+    };
     if content.is_ok() {
       let content = content.unwrap();
       let mut parser = Parser::new(&content);

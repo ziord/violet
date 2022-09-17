@@ -1,8 +1,17 @@
 use std::fs;
-use std::io::Error;
+use std::io::{self, BufRead, Error};
 
 pub(crate) fn read_file(filename: &str) -> Result<String, Error> {
   Ok(fs::read_to_string(filename)?)
+}
+
+pub(crate) fn read_stdin() -> Result<String, Error> {
+  let stdin = io::stdin();
+  let mut content = String::new();
+  for line in stdin.lock().lines() {
+    content.push_str(&line.unwrap());
+  }
+  Ok(content)
 }
 
 #[allow(dead_code)] // todo
