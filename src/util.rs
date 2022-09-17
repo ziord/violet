@@ -14,6 +14,26 @@ pub(crate) fn read_stdin() -> Result<String, Error> {
   Ok(content)
 }
 
+#[macro_export]
+macro_rules! vprint {
+  () => {
+    print!()
+  };
+  ($($tok:tt)*) => {
+    print!($($tok)*)
+  }
+}
+
+#[macro_export]
+macro_rules! vprintln {
+  () => {
+    println!()
+  };
+  ($($tok:tt)*) => {
+    println!($($tok)*)
+  }
+}
+
 #[allow(dead_code)] // todo
 pub(crate) fn write_file(
   filename: &str,

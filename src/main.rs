@@ -38,9 +38,7 @@ fn main() {
   dbg!(&args);
   match args[1].as_str() {
     "--help" => print_help(),
-    "-" => {
-      compile_file("", true)
-    }
+    "-" => compile_file("", true),
     f @ _ => {
       // disable typechecking for files (58-68).c & others
       let p = f
