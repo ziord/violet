@@ -6,6 +6,7 @@ pub enum ViError {
   EP001, // mismatch token
   EP002, // missing type
   EP003, // invalid hex sequence
+  EP004, // void statement expression
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +54,11 @@ impl ViError {
         self,
         "Invalid hex escape sequence",
         "A hex escape sequence is of the form \\x<nnn>, where <nnn> is 0-9 | a-f | A-F."
+      ),
+      ViError::EP004 => info!(
+        self,
+        "Void statement expression",
+        "Void statement expressions are not supported."
       ),
     }
   }

@@ -443,7 +443,7 @@ impl<'a> TypeCheck<'a> {
     if ty.is_err() {
       return ty;
     }
-    Ok(Rc::new(Type::default()))
+    ty
   }
 
   fn tc_var_decl(
@@ -498,6 +498,20 @@ impl<'a> TypeCheck<'a> {
     let ty = res.as_ref().unwrap();
     node.size.set(ty.size);
     Ok(Rc::new(Type::new(TypeLiteral::TYPE_INT)))
+  }
+
+  fn tc_stmt_expr(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
+    let node = unbox!(StmtExprNode, node);
+    let mut res = Rc::new(Type::default());
+    for n in &node.stmts {
+      let v = self.tc(n);
+      if v.is_err() {
+        return v;
+      } else {
+        res = v.unwrap();
+      }
+    }
+    Ok(res)
   }
 
   fn tc_call(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
@@ -568,6 +582,7 @@ impl<'a> TypeCheck<'a> {
       AstNode::FnCallNode(_) => self.tc_call(node),
       AstNode::ProgramNode(_) => self.tc_prog(node),
       AstNode::SizeofNode(_) => self.tc_sizeof(node),
+      AstNode::StmtExprNode(_) => self.tc_stmt_expr(node),
     }
   }
 

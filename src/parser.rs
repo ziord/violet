@@ -1,12 +1,8 @@
-use crate::ast::{
-  AssignNode, AstNode, BinaryNode, BlockStmtNode, ExprStmtNode, FnCallNode,
-  ForLoopNode, FunctionNode, IfElseNode, NumberNode, ProgramNode,
-  ReturnNode, SizeofNode, UnaryNode, VarDeclListNode, VarDeclNode, VarNode,
-  WhileLoopNode,
-};
+use crate::ast::*;
 use crate::errors::{ErrorInfo, ViError};
 use crate::lexer::{Lexer, OpType, Token, TokenType};
 use crate::types::{TParam, Type, TypeLiteral};
+use crate::unbox;
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::process::exit;
@@ -35,19 +31,12 @@ impl<'a, 'b> Parser<'a, 'b> {
 
   fn error(&self, code: Option<ErrorInfo<'a>>) {
     // todo
-    eprintln!(
-      "Error at {} - {}",
-      self.current_token,
-      code
-        .unwrap_or(
-          self
-            .current_token
-            .error_code
-            .unwrap_or(ViError::E0000)
-            .to_info()
-        )
-        .error_msg
-    );
+    let info = self.current_token.error_code.unwrap_or(ViError::E0000);
+    let info = code.unwrap_or(info.to_info());
+    eprintln!("Error at {} - {}", self.current_token, info.error_msg);
+    if !info.help_msg.is_empty() {
+      eprintln!("Help: {}", info.help_msg);
+    }
     exit(-1);
   }
 
@@ -234,9 +223,23 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn primary(&mut self) -> AstNode {
-    // primary = "(" expr ")" | "sizeof" unary | ident args? | num | str
-    // args = "(" ")"
+    // primary = "({" stmt+ "})"
+    //          | "(" expr ")"
+    //          | "sizeof" unary
+    //          | ident func-args?
+    //          | num
+    //          | str
     if self.match_tok(TokenType::LEFT_BRACKET) {
+      if self.match_tok(TokenType::LEFT_CURLY) {
+        if self.current_token.equal(TokenType::RIGHT_CURLY) {
+          self.error(Some(ViError::EP004.to_info()));
+        }
+        let block = self.compound_stmt();
+        let stmts = unbox!(BlockStmtNode, block).stmts;
+        let node = AstNode::StmtExprNode(StmtExprNode { stmts });
+        self.consume(TokenType::RIGHT_BRACKET);
+        return node;
+      }
       let node = self.expr();
       self.consume(TokenType::RIGHT_BRACKET);
       return node;

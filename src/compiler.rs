@@ -573,6 +573,13 @@ impl<'a> Compiler<'a> {
     self.c_number(&node);
   }
 
+  fn c_stmt_expr(&mut self, node: &AstNode) {
+    let node = unbox!(StmtExprNode, node);
+    for stmt in &node.stmts {
+      self.c_(stmt);
+    }
+  }
+
   fn c_function(&mut self, node: &AstNode) {
     let mut func = unbox!(FunctionNode, node);
     self.gen.set_current_fn(&func.name);
@@ -621,6 +628,7 @@ impl<'a> Compiler<'a> {
       AstNode::FnCallNode(_) => self.c_call(node),
       AstNode::ProgramNode(_) => self.c_prog(node),
       AstNode::SizeofNode(_) => self.c_sizeof(node),
+      AstNode::StmtExprNode(_) => self.c_stmt_expr(node),
     }
   }
 

@@ -232,7 +232,16 @@ impl<'a> SemAnalyzer<'a> {
     }
   }
 
-  fn sem_sizeof(&mut self, node: &AstNode) {}
+  fn sem_sizeof(&mut self, node: &AstNode) {
+    // todo
+  }
+
+  fn sem_stmt_expr(&mut self, node: &AstNode) {
+    let node = unbox!(StmtExprNode, node);
+    for stmt in &node.stmts {
+      self.sem(stmt);
+    }
+  }
 
   fn sem_block(&mut self, node: &BlockStmtNode) {
     for n in &node.stmts {
@@ -281,6 +290,7 @@ impl<'a> SemAnalyzer<'a> {
       AstNode::FnCallNode(_) => self.sem_call(node),
       AstNode::ProgramNode(_) => self.sem_prog(node),
       AstNode::SizeofNode(_) => self.sem_sizeof(node),
+      AstNode::StmtExprNode(_) => self.sem_stmt_expr(node),
     }
   }
 

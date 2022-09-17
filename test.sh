@@ -192,4 +192,10 @@ assert 0 '145.c'
 assert 119 '146.c'
 assert 165 '147.c'
 assert 255 '148.c'
+
+assert 0 '149.c'
+assert 2 '150.c'
+assert 1 '151.c'
+assert 6 '152.c'
+assert 3 '153.c'
 echo OK

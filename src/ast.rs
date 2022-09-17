@@ -110,6 +110,11 @@ pub struct SizeofNode {
 }
 
 #[derive(Debug)]
+pub struct StmtExprNode {
+  pub(crate) stmts: Vec<AstNode>,
+}
+
+#[derive(Debug)]
 pub struct ProgramNode {
   pub(crate) decls: VecDeque<AstNode>,
   // type, name, init_data (string literal)
@@ -134,5 +139,6 @@ pub enum AstNode {
   VarDeclListNode(VarDeclListNode),
   FnCallNode(FnCallNode),
   SizeofNode(SizeofNode),
+  StmtExprNode(StmtExprNode),
   ProgramNode(ProgramNode),
 }
