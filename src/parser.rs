@@ -3,19 +3,39 @@ use crate::errors::{ErrorInfo, ViError};
 use crate::lexer::{Lexer, OpType, Token, TokenType};
 use crate::types::{TParam, Type, TypeLiteral};
 use crate::unbox;
+use std::borrow::BorrowMut;
 use std::cell::{Cell, RefCell};
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::process::exit;
 use std::rc::Rc;
+
+#[derive(Debug)]
+struct Scope<K, V> {
+  level: Cell<i32>,
+  items: RefCell<BTreeMap<K, V>>,
+  enclosing: Option<RefCell<Rc<Scope<K, V>>>>,
+}
 
 #[derive(Debug)]
 pub(crate) struct Parser<'a, 'b> {
   lexer: Lexer<'a, 'b>,
   current_token: Token<'a>,
   previous_token: Token<'a>,
-  locals: Vec<(Rc<Type>, String)>,
+  // name, type, scope
+  locals: Vec<(String, Rc<Type>, i32)>,
   // type, name, init_data (string literal)
   globals: Vec<(Rc<Type>, String, Option<String>)>,
+  current_scope: Rc<Scope<String, Rc<Type>>>,
+}
+
+impl<K, V> Scope<K, V> {
+  fn new() -> Self {
+    Self {
+      level: Cell::new(0),
+      items: RefCell::new(BTreeMap::new()),
+      enclosing: (None),
+    }
+  }
 }
 
 impl<'a, 'b> Parser<'a, 'b> {
@@ -24,7 +44,8 @@ impl<'a, 'b> Parser<'a, 'b> {
       lexer: Lexer::new(src),
       current_token: Token::default(),
       previous_token: Token::default(),
-      locals: vec![],
+      locals: Vec::new(),
+      current_scope: Rc::new(Scope::new()),
       globals: vec![],
     }
   }
@@ -40,12 +61,34 @@ impl<'a, 'b> Parser<'a, 'b> {
     exit(-1);
   }
 
-  fn enter(&mut self) {
-    self.locals.clear();
+  fn enter_scope(&mut self) {
+    let mut other = Scope::new();
+    other
+      .enclosing
+      .borrow_mut()
+      .replace(RefCell::new(self.current_scope.clone()));
+    let level = self.current_scope.level.get();
+    self.current_scope = Rc::new(other);
+    self.current_scope.level.set(level + 1);
   }
 
-  fn leave(&mut self, _fn_name: &String) {
-    // todo
+  fn leave_scope(&mut self) {
+    let p = self
+      .current_scope
+      .enclosing
+      .as_ref()
+      .unwrap()
+      .borrow()
+      .clone();
+    self.current_scope = p;
+  }
+
+  fn push_scope(&mut self, name: &str, ty: &Rc<Type>) {
+    self
+      .current_scope
+      .items
+      .borrow_mut()
+      .insert(name.into(), ty.clone());
   }
 
   fn gen_id(&self) -> String {
@@ -84,15 +127,38 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
   }
 
-  fn find_var_type(&self, name: &str) -> (Rc<Type>, bool) {
-    for (var_ty, var_name) in &self.locals {
-      if var_name == name {
-        return (var_ty.clone(), true);
+  fn store(&mut self, name: &String, ty: &Rc<Type>) -> i32 {
+    let scope = self.current_scope.level.get();
+    self.locals.push((name.clone(), ty.clone(), scope));
+    self.push_scope(name, ty);
+    scope
+  }
+
+  fn store_global(
+    &mut self,
+    name: &String,
+    ty: &Rc<Type>,
+    data: Option<String>,
+  ) {
+    self.globals.push((ty.clone(), name.clone(), data));
+    // don't push into current scope; reserve current scope for locals
+  }
+
+  fn find_var_type(&self, name: &String) -> (Rc<Type>, i32) {
+    let mut scope = self.current_scope.clone();
+    loop {
+      if let Some(v) = scope.items.borrow().get(name) {
+        return (v.clone(), scope.level.get());
       }
+      if scope.enclosing.is_none() {
+        break;
+      }
+      let tmp = scope.enclosing.as_ref().unwrap().borrow().clone();
+      scope = tmp;
     }
     for (var_ty, var_name, _data) in &self.globals {
       if var_name == name {
-        return (var_ty.clone(), false);
+        return (var_ty.clone(), -1); // global -> -1
       }
     }
     // todo: need to handle this
@@ -121,7 +187,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     while i < bytes.len() && bytes[i] as char != '"' {
       let ch = bytes[i] as char;
       if ch == '\\' {
-        // check for octal sequence
+        // check for octal sequence \ooo
         let mut oc = bytes[i + 1] as char;
         if '0' <= oc && oc <= '7' {
           let mut c = oc as u32 - '0' as u32;
@@ -140,7 +206,7 @@ impl<'a, 'b> Parser<'a, 'b> {
           }
           continue;
         } else if oc == 'x' {
-          // check for hex sequence
+          // check for hex sequence \x[a-fA-F0-9]*
           if i + 2 >= bytes.len()
             || !char::is_ascii_hexdigit(&(bytes[i + 2] as char))
           {
@@ -200,9 +266,9 @@ impl<'a, 'b> Parser<'a, 'b> {
 
   fn variable(&mut self) -> AstNode {
     let name: String = self.previous_token.value().into();
-    let (ty, is_local) = self.find_var_type(&name);
+    let (ty, scope) = self.find_var_type(&name);
     let ty = RefCell::new(ty);
-    AstNode::VarNode(VarNode { name, ty, is_local })
+    AstNode::VarNode(VarNode { name, ty, scope })
   }
 
   fn call(&mut self, name: &str) -> AstNode {
@@ -264,11 +330,11 @@ impl<'a, 'b> Parser<'a, 'b> {
         Type::new(TypeLiteral::TYPE_CHAR),
         string.len() as u32,
       ));
-      self.globals.push((ty.clone(), name.clone(), Some(string)));
+      self.store_global(&name, &ty, Some(string));
       AstNode::VarNode(VarNode {
         name,
         ty: RefCell::new(ty),
-        is_local: false,
+        scope: -1,
       })
     } else {
       self.num()
@@ -475,12 +541,12 @@ impl<'a, 'b> Parser<'a, 'b> {
       let ((ty, _), name) = self.declarator(&base_ty);
       let ty = Rc::new(ty);
       // make parameters locally scoped to the function
-      self.locals.push((ty.clone(), name.clone()));
+      let scope = self.store(&name, &ty);
       params.push(VarDeclNode {
         ty: RefCell::new(ty),
         name,
         value: None,
-        is_local: true,
+        scope,
       });
       i += 1;
     }
@@ -539,13 +605,13 @@ impl<'a, 'b> Parser<'a, 'b> {
       let ((ty, _params), name) = self.declarator(&base_ty);
       let ty = RefCell::new(Rc::new(ty));
       // insert local
-      self.locals.push((ty.borrow().clone(), name.clone()));
+      let scope = self.store(&name, &ty.borrow());
       if !self.match_tok(TokenType::EQUAL) {
         decls.push(VarDeclNode {
           name,
           ty,
           value: None,
-          is_local: true,
+          scope,
         });
         continue;
       }
@@ -554,7 +620,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         name,
         ty,
         value: Some(Box::new(value)),
-        is_local: true,
+        scope,
       });
       i += 1;
     }
@@ -567,6 +633,7 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn compound_stmt(&mut self) -> AstNode {
     // compound-stmt = (declaration | stmt)* "}"
     let mut block = BlockStmtNode { stmts: vec![] };
+    self.enter_scope();
     while !self.match_tok(TokenType::RIGHT_CURLY) {
       if self.is_typename() {
         block.stmts.push(self.declaration());
@@ -574,6 +641,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         block.stmts.push(self.stmt());
       }
     }
+    self.leave_scope();
     AstNode::BlockStmtNode(block)
   }
 
@@ -672,23 +740,23 @@ impl<'a, 'b> Parser<'a, 'b> {
   ) -> AstNode {
     let mut vars = vec![];
     let ty = Rc::new(ty);
-    self.globals.push((ty.clone(), name.clone(), None));
+    self.store_global(&name, &ty, None);
     vars.push(VarDeclNode {
       name,
       ty: RefCell::new(ty),
       value: None,
-      is_local: false,
+      scope: -1,
     });
     while !self.match_tok(TokenType::SEMI_COLON) {
       self.consume(TokenType::COMMA);
       let ((ty, _), name) = self.declarator(&base_ty);
       let ty = Rc::new(ty);
-      self.globals.push((ty.clone(), name.clone(), None));
+      self.store_global(&name, &ty, None);
       vars.push(VarDeclNode {
         name,
         ty: RefCell::new(ty),
         value: None,
-        is_local: false,
+        scope: -1,
       });
     }
     AstNode::VarDeclListNode(VarDeclListNode { decls: vars })
@@ -696,7 +764,7 @@ impl<'a, 'b> Parser<'a, 'b> {
 
   fn function(&mut self) -> AstNode {
     // create new fn state
-    self.enter();
+    self.enter_scope();
     let base_ty = self.declspec();
     let ((ty, params), name) = self.declarator(&base_ty);
     if ty.kind.get() != TypeLiteral::TYPE_FUNC {
@@ -705,7 +773,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     self.consume(TokenType::LEFT_CURLY);
     let list = self.compound_stmt();
     // leave fn state
-    self.leave(&name);
+    self.leave_scope();
     if let AstNode::BlockStmtNode(block) = list {
       AstNode::FunctionNode(FunctionNode {
         name,
@@ -733,7 +801,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         decls.push_front(AstNode::VarDeclNode(VarDeclNode {
           name: name.clone(),
           ty: RefCell::new(ty.clone()),
-          is_local: false,
+          scope: -1,
           value: None,
         }));
       }

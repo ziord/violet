@@ -18,7 +18,8 @@ const V_STDIN: &str = "<stdin>";
 
 #[derive(Debug)]
 struct GenState {
-  symbols: HashMap<String, i32>,
+  // name, (scope, offset)
+  symbols: HashMap<(String, i32), i32>,
   stack_size: i32,
   counter: i32,
   current_fn: Option<String>,
@@ -36,8 +37,8 @@ impl Default for GenState {
 }
 
 impl GenState {
-  fn get_offset(&self, name: &str) -> i32 {
-    if let Some(offset) = self.symbols.get(name) {
+  fn get_offset(&self, name: &str, scope: i32) -> i32 {
+    if let Some(offset) = self.symbols.get(&(name.into(), scope)) {
       *offset
     } else {
       panic!("Unknown variable '{}'", name);
@@ -136,16 +137,20 @@ impl<'a> Compiler<'a> {
      *    | |
      */
     let mut offset = 0;
-    for (var_ty, var_name) in &func.locals {
+    self.gen.symbols.clear();
+    for (var_name, var_ty, scope) in &func.locals {
       offset += var_ty.size;
-      self.gen.symbols.insert(var_name.clone(), -(offset as i32));
+      self
+        .gen
+        .symbols
+        .insert((var_name.clone(), *scope), -(offset as i32));
     }
     func.stack_size.set(self.align_to(offset as i32, 16));
   }
 
-  fn get_address(&self, name: &str) -> String {
+  fn get_address(&self, name: &str, scope: i32) -> String {
     // get the offset from rbp
-    let offset = self.gen.get_offset(&name);
+    let offset = self.gen.get_offset(&name, scope);
     format!("{offset}(%rbp)")
   }
 
@@ -212,8 +217,12 @@ impl<'a> Compiler<'a> {
   fn emit_address(&mut self, node: &AstNode) {
     match node {
       AstNode::VarNode(n) => {
-        if n.is_local {
-          vprintln!(self, "  lea {}, %rax", self.get_address(&n.name));
+        if n.scope > 0 {
+          vprintln!(
+            self,
+            "  lea {}, %rax",
+            self.get_address(&n.name, n.scope)
+          );
         } else {
           vprintln!(self, "  lea {}(%rip), %rax", n.name);
         }
@@ -547,7 +556,7 @@ impl<'a> Compiler<'a> {
   }
 
   fn c_var_decl(&mut self, node: &VarDeclNode) {
-    if !node.is_local {
+    if node.scope == -1 {
       return;
     }
     if let Some(val) = &node.value {
@@ -555,7 +564,7 @@ impl<'a> Compiler<'a> {
       let left_node = Box::new(AstNode::VarNode(VarNode {
         name: node.name.clone(),
         ty: RefCell::new(node.ty.borrow().clone()),
-        is_local: node.is_local,
+        scope: node.scope,
       }));
       self._c_assign(&left_node, &right_node, &OpType::EQ);
     }
@@ -616,7 +625,7 @@ impl<'a> Compiler<'a> {
         } else {
           self.arg_regs64[i]
         },
-        self.get_address(&func.params[i].name)
+        self.get_address(&func.params[i].name, func.params[i].scope)
       );
     }
     self.c_stmt_list(&func.body);

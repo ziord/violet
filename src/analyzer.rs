@@ -9,6 +9,7 @@ use std::rc::Rc;
 #[derive(Debug, Clone)]
 pub struct SymbolStack<K, V> {
   // each map represents a scope
+  curr: i32,
   stack: VecDeque<BTreeMap<K, V>>,
 }
 
@@ -18,49 +19,91 @@ pub struct SymbolTable {
   symbols: BTreeMap<String, (Rc<Type>, SymbolStack<String, Rc<Type>>)>,
 }
 
+impl<K, V> Default for SymbolStack<K, V>
+where
+  K: Debug + Ord + Clone,
+  V: Clone,
+{
+  fn default() -> Self {
+    Self {
+      curr: 0,
+      stack: VecDeque::new(),
+    }
+  }
+}
+
 impl<K, V> SymbolStack<K, V>
 where
   K: Debug + Ord + Clone,
   V: Clone,
 {
   pub fn new() -> Self {
-    Self {
-      stack: VecDeque::new(),
-    }
+    Self::default()
+  }
+
+  fn index(&self) -> usize {
+    self.stack.len() - self.curr as usize
+  }
+
+  pub fn scope(&self) -> i32 {
+    // self.curr will always be >= 1 as long as self.stack isn't empty
+    self.curr - 1
   }
 
   pub fn clear(&mut self) {
     self.stack.clear();
+    self.curr = 0;
   }
 
   pub fn push_tab(&mut self) {
+    self.curr += 1;
     self.stack.push_front(BTreeMap::new());
   }
 
   pub fn pop_tab(&mut self) {
-    self.stack.pop_front();
+    // the map at the bottom/first map pushed needs to be accessible
+    // hence, we can't decrease self.curr once it's at 1.
+    if self.curr <= 1 {
+      return;
+    }
+    self.curr -= 1;
+  }
+
+  pub fn get_stack(&self) -> &VecDeque<BTreeMap<K, V>> {
+    &self.stack
   }
 
   pub fn insert_symbol(&mut self, name: &K, v: &V) {
     if self.stack.is_empty() {
-      self.stack.push_front(BTreeMap::new());
+      self.push_tab();
     }
-    if let Some(t) = self.stack.get_mut(0) {
+    if let Some(t) = self.stack.get_mut(self.index()) {
       t.insert(name.clone(), v.clone());
     }
   }
 
   pub fn remove_symbol(&mut self, name: K) {
-    if self.stack.is_empty() {
-      return;
-    }
-    if let Some(t) = self.stack.get_mut(0) {
+    assert!(!self.stack.is_empty(), "stack shouldn't be empty::remove");
+    if let Some(t) = self.stack.get_mut(self.index()) {
       t.remove(&name);
     }
   }
 
   pub fn lookup_symbol(&self, name: &K) -> Option<V> {
-    for rc_tab in &self.stack {
+    /*
+     * scope increases from 0
+     * scp 2<-[...] ---> third scope  (idx 0) <---inner (third in second) ...↓
+     * scp 1<-[...] ---> second scope (idx 1) <---inner (second in first) .....↓
+     * scp 0<-[...] ---> first scope  (idx 2) <---outer                   .......↓
+     */
+    // need to start from the current scope
+    let tabs: Vec<(_, &BTreeMap<_, _>)> = self
+      .stack
+      .iter()
+      .enumerate()
+      .filter(|(pos, _tab)| pos >= &self.index())
+      .collect();
+    for (_, rc_tab) in tabs {
       if let Some(v) = rc_tab.get(name) {
         return Some(v.clone());
       }
@@ -202,7 +245,8 @@ impl<'a> SemAnalyzer<'a> {
 
   fn sem_var_decl(&mut self, node: &VarDeclNode) {
     // todo: need to check for duplicate symbols
-    if !node.is_local {
+    if node.scope == -1 {
+      // global
       // pretend the variable is a function and store it in the symbol table
       // but its symbol stack would always be empty
       self

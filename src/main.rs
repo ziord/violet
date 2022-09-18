@@ -16,7 +16,7 @@ fn print_usage() {
 }
 
 fn parse_args() {
-  // compiler::compile_file("./tmp/violet-test-gR7ZdP/empty.c", "", true);
+  // compiler::compile_file("./samples/1.c", "", true);
   // return;
   let args: Vec<String> = env::args().collect();
   if args.len() < 2 {
