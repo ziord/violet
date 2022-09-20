@@ -45,7 +45,7 @@ fn parse_args() {
       if args.len() > 2 {
         util::error("Invalid number of arguments", 1);
       }
-      compiler::compile_file(&args[2], "", true)
+      compiler::compile_file(&args[1], "", true)
     }
   }
 }
