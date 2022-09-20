@@ -1,6 +1,5 @@
 target
-tmp
-samples
+tests/tmp
 .idea
 grammars
 dump.txt

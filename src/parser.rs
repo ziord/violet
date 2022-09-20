@@ -281,8 +281,8 @@ impl<'a, 'b> Parser<'a, 'b> {
         if i > 0 {
           self.consume(TokenType::COMMA);
         }
-        args.push(self.assign());
         i += 1;
+        args.push(self.assign());
       }
     }
     AstNode::FnCallNode(FnCallNode { name, args })
@@ -537,6 +537,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       if i > 0 {
         self.consume(TokenType::COMMA);
       }
+      i += 1;
       let base_ty = self.declspec();
       let ((ty, _), name) = self.declarator(&base_ty);
       let ty = Rc::new(ty);
@@ -548,7 +549,6 @@ impl<'a, 'b> Parser<'a, 'b> {
         value: None,
         scope,
       });
-      i += 1;
     }
     self.func_type(ty, params)
   }
@@ -602,6 +602,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       if i > 0 {
         self.consume(TokenType::COMMA);
       }
+      i += 1;
       let ((ty, _params), name) = self.declarator(&base_ty);
       let ty = RefCell::new(Rc::new(ty));
       // insert local
@@ -622,7 +623,6 @@ impl<'a, 'b> Parser<'a, 'b> {
         value: Some(Box::new(value)),
         scope,
       });
-      i += 1;
     }
     if decls.len() == 1 {
       return AstNode::VarDeclNode(decls.pop().unwrap());

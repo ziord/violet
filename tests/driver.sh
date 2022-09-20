@@ -1,5 +1,6 @@
 #!/bin/bash
-tmp=$(mktemp -d ./tmp/violet-test-XXXXXX)
+tmp=$(mktemp -d /tmp/violet-test-XXXXXX)
+violet=../violet/target/debug/violet
 trap 'rm -rf $tmp' INT TERM HUP EXIT
 echo > "$tmp"/empty.c
 
@@ -14,12 +15,12 @@ check() {
 
 # -o
 rm -f "$tmp"/out
-./target/debug/violet -o "$tmp"/out "$tmp"/empty.c
+${violet} -o "$tmp"/out "$tmp"/empty.c
 [ -f "$tmp"/out ]
 check -o
 
 # --help
-./target/debug/violet --help | grep -q violet
+${violet} --help | grep -q violet
 check --help
 
 echo OK

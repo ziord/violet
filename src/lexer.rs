@@ -397,6 +397,8 @@ impl<'a, 'b> Lexer<'a, 'b> {
         return self.error_token(ViError::EL002);
       } else if ch == '\\' {
         has_esc = true;
+        // escape the next char; handles any char to be escaped.
+        self.current += 1;
       }
       self.advance();
     }
