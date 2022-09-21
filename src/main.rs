@@ -26,7 +26,7 @@ fn parse_args() {
     "--help" => print_usage(),
     "-" => {
       // read from input
-      compiler::compile_file("<stdin>", "", true);
+      compiler::compile_file("-", "", true);
     }
     "-o" => {
       // specifies output path
@@ -38,8 +38,7 @@ fn parse_args() {
       } else if args.len() != 4 {
         util::error("No input file specified", 1);
       }
-      let in_file = if &args[3] == "-" { "<stdin>" } else { &args[3] };
-      compiler::compile_file(in_file, &args[2], true);
+      compiler::compile_file(&args[3], &args[2], true);
     }
     _ => {
       if args.len() > 2 {

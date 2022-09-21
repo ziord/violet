@@ -257,21 +257,30 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn num(&mut self) -> AstNode {
+    let line = self.current_token.line;
     self.consume(TokenType::NUM);
     AstNode::NumberNode(NumberNode {
       value: self.previous_token.to_int(),
       ty: RefCell::new(Rc::new(Type::new(TypeLiteral::TYPE_INT))),
+      line,
     })
   }
 
   fn variable(&mut self) -> AstNode {
+    let line = self.previous_token.line;
     let name: String = self.previous_token.value().into();
     let (ty, scope) = self.find_var_type(&name);
     let ty = RefCell::new(ty);
-    AstNode::VarNode(VarNode { name, ty, scope })
+    AstNode::VarNode(VarNode {
+      name,
+      ty,
+      scope,
+      line,
+    })
   }
 
   fn call(&mut self, name: &str) -> AstNode {
+    let line = self.previous_token.line;
     let name: String = name.into();
     // args
     let mut args: Vec<AstNode> = vec![];
@@ -285,7 +294,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         args.push(self.assign());
       }
     }
-    AstNode::FnCallNode(FnCallNode { name, args })
+    AstNode::FnCallNode(FnCallNode { name, args, line })
   }
 
   fn primary(&mut self) -> AstNode {
@@ -297,12 +306,13 @@ impl<'a, 'b> Parser<'a, 'b> {
     //          | str
     if self.match_tok(TokenType::LEFT_BRACKET) {
       if self.match_tok(TokenType::LEFT_CURLY) {
+        let line = self.previous_token.line;
         if self.current_token.equal(TokenType::RIGHT_CURLY) {
           self.error(Some(ViError::EP004.to_info()));
         }
         let block = self.compound_stmt();
         let stmts = unbox!(BlockStmtNode, block).stmts;
-        let node = AstNode::StmtExprNode(StmtExprNode { stmts });
+        let node = AstNode::StmtExprNode(StmtExprNode { stmts, line });
         self.consume(TokenType::RIGHT_BRACKET);
         return node;
       }
@@ -318,13 +328,16 @@ impl<'a, 'b> Parser<'a, 'b> {
         self.variable()
       }
     } else if self.match_tok(TokenType::SIZEOF) {
+      let line = self.previous_token.line;
       AstNode::SizeofNode(SizeofNode {
         size: Cell::new(0),
         node: Box::new(self.unary()),
+        line,
       })
     } else if self.match_tok(TokenType::STRING) {
       // create a new global variable, and associate it with the string
       let name = self.gen_id();
+      let line = self.previous_token.line;
       let string = self.process_str_literal();
       let ty = Rc::new(Type::array_of(
         Type::new(TypeLiteral::TYPE_CHAR),
@@ -335,6 +348,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         name,
         ty: RefCell::new(ty),
         scope: -1,
+        line,
       })
     } else {
       self.num()
@@ -345,6 +359,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     // postfix = primary ("[" expr "]")*
     let mut node = self.primary();
     while self.match_tok(TokenType::LEFT_SQR_BRACKET) {
+      let line = self.previous_token.line;
       // x[y] is a sugar for *(x+y)
       let index = self.expr();
       self.consume(TokenType::RIGHT_SQR_BRACKET);
@@ -354,8 +369,10 @@ impl<'a, 'b> Parser<'a, 'b> {
           left_node: Box::new(node),
           right_node: Box::new(index),
           op: OpType::PLUS,
+          // line,
         })),
         ty: RefCell::new(Rc::new(Type::default())),
+        line,
       };
       node = AstNode::UnaryNode(tmp);
     }
@@ -371,6 +388,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       | TokenType::STAR
       | TokenType::AMP => {
         self.advance();
+        let line = self.previous_token.line;
         let mut op = self.previous_token.t_type().to_optype();
         if op == OpType::MUL {
           op = OpType::DEREF;
@@ -379,6 +397,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         AstNode::UnaryNode(UnaryNode {
           node: Box::new(node),
           op,
+          line,
           ty: RefCell::new(Rc::new(Type::default())),
         })
       }
@@ -486,10 +505,12 @@ impl<'a, 'b> Parser<'a, 'b> {
     if self.match_tok(TokenType::SEMI_COLON) {
       return self.empty_stmt();
     }
+    let line = self.current_token.line;
     let node = self.expr();
     self.consume(TokenType::SEMI_COLON);
     AstNode::ExprStmtNode(ExprStmtNode {
       node: Box::new(node),
+      line,
     })
   }
 
@@ -538,6 +559,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         self.consume(TokenType::COMMA);
       }
       i += 1;
+      let line = self.current_token.line;
       let base_ty = self.declspec();
       let ((ty, _), name) = self.declarator(&base_ty);
       let ty = Rc::new(ty);
@@ -548,6 +570,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         name,
         value: None,
         scope,
+        line,
       });
     }
     self.func_type(ty, params)
@@ -592,6 +615,7 @@ impl<'a, 'b> Parser<'a, 'b> {
 
   fn declaration(&mut self) -> AstNode {
     // declaration = declspec (declarator ("=" expr)? ("," declarator ("=" expr)?)*)? ";"
+    let line = self.current_token.line;
     let base_ty = self.declspec();
     if self.match_tok(TokenType::SEMI_COLON) {
       self.error(Some(ViError::EP001.to_info()));
@@ -603,6 +627,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         self.consume(TokenType::COMMA);
       }
       i += 1;
+      let line = self.current_token.line;
       let ((ty, _params), name) = self.declarator(&base_ty);
       let ty = RefCell::new(Rc::new(ty));
       // insert local
@@ -613,6 +638,7 @@ impl<'a, 'b> Parser<'a, 'b> {
           ty,
           value: None,
           scope,
+          line,
         });
         continue;
       }
@@ -622,17 +648,21 @@ impl<'a, 'b> Parser<'a, 'b> {
         ty,
         value: Some(Box::new(value)),
         scope,
+        line,
       });
     }
     if decls.len() == 1 {
       return AstNode::VarDeclNode(decls.pop().unwrap());
     }
-    AstNode::VarDeclListNode(VarDeclListNode { decls })
+    AstNode::VarDeclListNode(VarDeclListNode { decls, line })
   }
 
   fn compound_stmt(&mut self) -> AstNode {
     // compound-stmt = (declaration | stmt)* "}"
-    let mut block = BlockStmtNode { stmts: vec![] };
+    let mut block = BlockStmtNode {
+      stmts: vec![],
+      // line: self.current_token.line,
+    };
     self.enter_scope();
     while !self.match_tok(TokenType::RIGHT_CURLY) {
       if self.is_typename() {
@@ -646,7 +676,10 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn empty_stmt(&self) -> AstNode {
-    AstNode::BlockStmtNode(BlockStmtNode { stmts: vec![] })
+    AstNode::BlockStmtNode(BlockStmtNode {
+      stmts: vec![],
+      // line: self.current_token.line,
+    })
   }
 
   fn stmt(&mut self) -> AstNode {
@@ -658,6 +691,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     //          | expr-stmt
     match self.current_token.t_type() {
       TokenType::WHILE => {
+        let line = self.current_token.line;
         self.advance();
         self.consume(TokenType::LEFT_BRACKET);
         let condition = self.expr();
@@ -666,9 +700,11 @@ impl<'a, 'b> Parser<'a, 'b> {
         AstNode::WhileLoopNode(WhileLoopNode {
           condition: Box::new(condition),
           body: Box::new(block),
+          line,
         })
       }
       TokenType::FOR => {
+        let line = self.current_token.line;
         self.advance();
         let init;
         let condition;
@@ -696,9 +732,11 @@ impl<'a, 'b> Parser<'a, 'b> {
           condition: Box::new(condition),
           incr: Box::new(incr),
           body: Box::new(block),
+          line,
         })
       }
       TokenType::IF => {
+        let line = self.current_token.line;
         self.advance();
         self.consume(TokenType::LEFT_BRACKET);
         let condition = Box::new(self.expr());
@@ -714,14 +752,17 @@ impl<'a, 'b> Parser<'a, 'b> {
           condition,
           if_block,
           else_block,
+          line,
         });
       }
       TokenType::RETURN => {
+        let line = self.current_token.line;
         self.advance();
         let node: AstNode = self.expr();
         self.consume(TokenType::SEMI_COLON);
         return AstNode::ReturnNode(ReturnNode {
           expr: Box::new(node),
+          line,
         });
       }
       TokenType::LEFT_CURLY => {
@@ -741,14 +782,17 @@ impl<'a, 'b> Parser<'a, 'b> {
     let mut vars = vec![];
     let ty = Rc::new(ty);
     self.store_global(&name, &ty, None);
+    let line = self.previous_token.line;
     vars.push(VarDeclNode {
       name,
       ty: RefCell::new(ty),
       value: None,
       scope: -1,
+      line,
     });
     while !self.match_tok(TokenType::SEMI_COLON) {
       self.consume(TokenType::COMMA);
+      let line = self.current_token.line;
       let ((ty, _), name) = self.declarator(&base_ty);
       let ty = Rc::new(ty);
       self.store_global(&name, &ty, None);
@@ -757,14 +801,16 @@ impl<'a, 'b> Parser<'a, 'b> {
         ty: RefCell::new(ty),
         value: None,
         scope: -1,
+        line,
       });
     }
-    AstNode::VarDeclListNode(VarDeclListNode { decls: vars })
+    AstNode::VarDeclListNode(VarDeclListNode { decls: vars, line })
   }
 
   fn function(&mut self) -> AstNode {
     // create new fn state
     self.enter_scope();
+    let line = self.current_token.line;
     let base_ty = self.declspec();
     let ((ty, params), name) = self.declarator(&base_ty);
     if ty.kind.get() != TypeLiteral::TYPE_FUNC {
@@ -782,6 +828,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         body: block,
         locals: std::mem::take(&mut self.locals),
         ty: RefCell::new(Rc::new(ty)),
+        line,
       })
     } else {
       panic!("expected BlockStmtNode node")
@@ -803,6 +850,7 @@ impl<'a, 'b> Parser<'a, 'b> {
           ty: RefCell::new(ty.clone()),
           scope: -1,
           value: None,
+          line: 0,
         }));
       }
     }

@@ -61,11 +61,11 @@ pub enum OpType {
 #[derive(Debug, Copy, Clone)]
 pub struct Token<'a> {
   t_type: TokenType,
-  line: i32,
-  column: i32,
   value: &'a str,
-  pub has_esc: bool,
-  pub error_code: Option<ViError>,
+  pub(crate) line: i32,
+  pub(crate) column: i32,
+  pub(crate) has_esc: bool,
+  pub(crate) error_code: Option<ViError>,
 }
 
 #[derive(Debug)]

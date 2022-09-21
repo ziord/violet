@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::io;
 use std::rc::Rc;
 
-const V_STDIN: &str = "<stdin>";
+const V_STDIN: &str = "-";
 
 #[derive(Debug)]
 struct GenState {
@@ -565,6 +565,7 @@ impl<'a> Compiler<'a> {
         name: node.name.clone(),
         ty: RefCell::new(node.ty.borrow().clone()),
         scope: node.scope,
+        line: node.line,
       }));
       self._c_assign(&left_node, &right_node, &OpType::EQ);
     }
@@ -598,6 +599,7 @@ impl<'a> Compiler<'a> {
     let node = AstNode::NumberNode(NumberNode {
       value: node.size.get() as i32,
       ty: RefCell::new(ty.unwrap()),
+      line: node.line,
     });
     self.c_number(&node);
   }
@@ -640,6 +642,10 @@ impl<'a> Compiler<'a> {
   }
 
   fn c_(&mut self, node: &AstNode) {
+    if let Some(line) = node.get_line() {
+      vprintln!(self, "  .loc 1 {}", line);
+    }
+
     match node {
       AstNode::NumberNode(_) => self.c_number(node),
       AstNode::BinaryNode(_) => self.c_binary(node),
@@ -676,6 +682,7 @@ impl<'a> Compiler<'a> {
     }
     // compile
     self.tc.replace(TypeCheck::new(sem.move_tab()));
+    vprintln!(self, ".file 1 \"{}\"", self.in_path);
     self.c_(&root);
     Ok(0)
   }
