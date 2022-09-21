@@ -496,8 +496,16 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn expr(&mut self) -> AstNode {
-    // expr = assign
-    self.assign()
+    // expr = assign ("," expr)?
+    let node = self.assign();
+    if self.match_tok(TokenType::COMMA) {
+      return AstNode::BinaryNode(BinaryNode {
+        left_node: Box::new(node),
+        right_node: Box::new(self.expr()),
+        op: OpType::COMMA,
+      });
+    }
+    node
   }
 
   fn expr_stmt(&mut self) -> AstNode {

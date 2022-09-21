@@ -237,7 +237,18 @@ impl<'a> Compiler<'a> {
           _ => self.emit_address(&addr_node.node),
         }
       }
-      _ => panic!("Unsupported node for emit_address"),
+      AstNode::BinaryNode(n) => {
+        if n.op == OpType::COMMA {
+          self.c_(&n.left_node);
+          self.emit_address(&n.right_node);
+        } else {
+          panic!(
+            "Unsupported optype for binary node emit_address: {:#?}",
+            node
+          );
+        }
+      }
+      _ => panic!("Unsupported node for emit_address: {:#?}", node),
     }
   }
 
@@ -410,6 +421,11 @@ impl<'a> Compiler<'a> {
       {
         return self.c_ptr_binary(node, &left_ty, &right_ty);
       }
+    } else if node.op == OpType::COMMA {
+      self.c_(&node.left_node);
+      self.c_(&node.right_node);
+      self.emit_comment("(end binary expr)");
+      return;
     }
     self.c_(&node.right_node);
     self.push_reg();

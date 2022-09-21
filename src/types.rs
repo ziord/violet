@@ -290,6 +290,7 @@ impl<'a> TypeCheck<'a> {
           return Ok(left_ty);
         }
       }
+      OpType::COMMA => return Ok(right_ty),
       OpType::LEQ
       | OpType::GEQ
       | OpType::LT

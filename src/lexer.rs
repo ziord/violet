@@ -56,6 +56,7 @@ pub enum OpType {
   EQ,    // =
   ADDR,  // &
   DEREF, // *
+  COMMA, // ,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -138,6 +139,7 @@ impl Display for OpType {
       OpType::EQ => write!(f, "="),
       OpType::ADDR => write!(f, "&"),
       OpType::DEREF => write!(f, "*"),
+      OpType::COMMA => write!(f, ","),
     }
   }
 }
