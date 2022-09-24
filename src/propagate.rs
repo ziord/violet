@@ -17,6 +17,10 @@ fn prop_var(node: &AstNode) -> Ty {
 
 fn prop_unary(node: &AstNode) -> Ty {
   let node = unbox!(UnaryNode, node);
+  if node.member_t.is_some() {
+    // struct member access, type is set at parse time.
+    return node.ty.borrow().clone();
+  }
   let ty = prop(&node.node);
   // propagate
   match node.op {

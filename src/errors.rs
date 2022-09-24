@@ -9,6 +9,8 @@ pub enum ViError {
   EP002, // missing type
   EP003, // invalid hex sequence
   EP004, // void statement expression
+  EP005, // struct (.) access on non-struct
+  EP006, // no such struct member
 }
 
 #[derive(Debug, Clone)]
@@ -70,6 +72,16 @@ impl ViError {
         self,
         "Void statement expression",
         "Void statement expressions are not supported."
+      ),
+      ViError::EP005 => info!(
+        self,
+        "Invalid struct access",
+        "The left hand side expression should be a struct for '.' access."
+      ),
+      ViError::EP006 => info!(
+        self,
+        "No such struct member",
+        "The member referenced is not defined for this struct."
       ),
     }
   }

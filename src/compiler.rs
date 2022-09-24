@@ -229,14 +229,22 @@ impl<'a> Compiler<'a> {
           vprintln!(self, "  lea {}(%rip), %rax", n.name);
         }
       }
-      AstNode::UnaryNode(ref addr_node) => {
-        match addr_node.op {
+      AstNode::UnaryNode(ref u_node) => {
+        match u_node.op {
           OpType::DEREF => {
             // assuming n is UnaryNode(*)
             // &*var -> var
-            self.c_(&addr_node.node);
+            self.c_(&u_node.node);
           }
-          _ => self.emit_address(&addr_node.node),
+          OpType::DOT => {
+            self.emit_address(&u_node.node);
+            vprintln!(
+              self,
+              "  add ${}, %rax",
+              u_node.member_t.as_ref().unwrap().offset
+            );
+          }
+          _ => self.emit_address(&u_node.node),
         }
       }
       AstNode::BinaryNode(n) => {
@@ -497,6 +505,10 @@ impl<'a> Compiler<'a> {
       }
       OpType::ADDR => {
         self.emit_address(&*u_node.node);
+      }
+      OpType::DOT => {
+        self.emit_address(node);
+        self.emit_load(&u_node.ty.borrow());
       }
       _ => unreachable!(),
     }

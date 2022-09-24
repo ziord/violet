@@ -1,5 +1,5 @@
 use crate::lexer::OpType;
-use crate::types::Type;
+use crate::types::{TMember, Type};
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -24,6 +24,7 @@ pub struct UnaryNode {
   pub(crate) node: Box<AstNode>,
   pub(crate) op: OpType,
   pub(crate) line: i32,
+  pub(crate) member_t: Option<TMember>,
   pub(crate) ty: RefCell<Rc<Type>>,
 }
 

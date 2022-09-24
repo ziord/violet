@@ -21,6 +21,7 @@ pub enum TokenType {
   LESS_EQUAL,        // <=
   GRT_EQUAL,         // >=
   EQUAL,             // =
+  DOT,               // .
   SEMI_COLON,        // ;
   COMMA,             // ,
   IDENT,             // id
@@ -28,7 +29,8 @@ pub enum TokenType {
   RIGHT_CURLY,       // }
   AMP,               // &
   RETURN,            // return
-  SIZEOF,            //sizeof
+  STRUCT,            // struct
+  SIZEOF,            // sizeof
   IF,                // if
   ELSE,              // else
   FOR,               // for
@@ -54,6 +56,7 @@ pub enum OpType {
   EQQ,   // ==
   NEQ,   // !=
   EQ,    // =
+  DOT,   // .
   ADDR,  // &
   DEREF, // *
   COMMA, // ,
@@ -104,11 +107,13 @@ impl Display for TokenType {
       TokenType::LESS_EQUAL => write!(f, "TOK<LESS-EQUAL>"),
       TokenType::GRT_EQUAL => write!(f, "TOK<GREATER-EQUAL>"),
       TokenType::EQUAL => write!(f, "TOK<EQUAL>"),
+      TokenType::DOT => write!(f, "TOK<DOT>"),
       TokenType::NOT_EQUAL => write!(f, "TOK<NOT-EQUAL>"),
       TokenType::SEMI_COLON => write!(f, "TOK<SEMI-COLON>"),
       TokenType::AMP => write!(f, "TOK<AMP>"),
       TokenType::IDENT => write!(f, "TOK<IDENTIFIER>"),
       TokenType::RETURN => write!(f, "TOK<RETURN>"),
+      TokenType::STRUCT => write!(f, "TOK<STRUCT>"),
       TokenType::SIZEOF => write!(f, "TOK<SIZEOF>"),
       TokenType::IF => write!(f, "TOK<IF>"),
       TokenType::ELSE => write!(f, "TOK<ELSE>"),
@@ -140,6 +145,7 @@ impl Display for OpType {
       OpType::ADDR => write!(f, "&"),
       OpType::DEREF => write!(f, "*"),
       OpType::COMMA => write!(f, ","),
+      OpType::DOT => write!(f, "."),
     }
   }
 }
@@ -233,6 +239,7 @@ impl<'a, 'b> Lexer<'a, 'b> {
       ("while", TokenType::WHILE),
       ("int", TokenType::INT),
       ("char", TokenType::CHAR),
+      ("struct", TokenType::STRUCT),
     ];
     Self {
       src,
@@ -472,6 +479,13 @@ impl<'a, 'b> Lexer<'a, 'b> {
           self.create_token(TokenType::NOT_EQUAL)
         } else {
           self.error_token(ViError::EL001)
+        }
+      }
+      '.' => {
+        if self.is_digit(self.peek(Some(1))) {
+          self.lex_number()
+        } else {
+          self.create_token(TokenType::DOT)
         }
       }
       _ => self.error_token(ViError::EL001),

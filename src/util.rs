@@ -34,7 +34,7 @@ pub(crate) fn open_file(filename: &str) -> File {
   f
 }
 
-pub(crate) fn error(why: &str, code: i32) {
+pub(crate) fn error(why: &str, code: i32) -> ! {
   eprintln!("{}", why);
   exit(code);
 }

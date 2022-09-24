@@ -10,6 +10,7 @@ pub enum TypeLiteral {
   TYPE_PTR,
   TYPE_FUNC,
   TYPE_ARRAY,
+  TYPE_STRUCT,
   // TYPE_VOID,
   // TYPE_CHAR,
   // TYPE_BOOL,
@@ -22,10 +23,18 @@ pub struct TParam {
 }
 
 #[derive(Debug, Clone)]
+pub struct TMember {
+  pub(crate) name: String,
+  pub(crate) ty: Rc<Type>,
+  pub(crate) offset: u32,
+}
+
+#[derive(Debug, Clone)]
 pub struct Type {
   pub(crate) kind: Cell<TypeLiteral>,
   pub(crate) subtype: RefCell<Option<RefCell<Rc<Type>>>>,
   pub(crate) params: Option<RefCell<Vec<TParam>>>,
+  pub(crate) members: Option<RefCell<Vec<TMember>>>,
   pub(crate) size: u32,
   pub(crate) array_len: u32,
 }
@@ -36,6 +45,7 @@ impl Default for Type {
       kind: Cell::new(TypeLiteral::TYPE_NIL),
       subtype: RefCell::new(None),
       params: None,
+      members: None,
       size: 0,
       array_len: 0,
     }
@@ -48,6 +58,7 @@ impl From<Rc<Type>> for Type {
       kind: ty.kind.clone(),
       subtype: ty.subtype.clone(),
       params: ty.params.clone(),
+      members: ty.members.clone(),
       size: ty.size,
       array_len: ty.array_len,
     }
@@ -60,6 +71,7 @@ impl Type {
       kind: Cell::new(kind),
       subtype: RefCell::new(None),
       params: None,
+      members: None,
       size: match kind {
         // sub.size comes from here
         TypeLiteral::TYPE_INT | TypeLiteral::TYPE_PTR => 8,

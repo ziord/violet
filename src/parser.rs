@@ -1,7 +1,8 @@
 use crate::ast::*;
 use crate::errors::{ErrorInfo, ViError};
 use crate::lexer::{Lexer, OpType, Token, TokenType};
-use crate::types::{TParam, Type, TypeLiteral};
+use crate::propagate::{get_type, propagate_types};
+use crate::types::{TMember, TParam, Type, TypeLiteral};
 use crate::unbox;
 use std::borrow::BorrowMut;
 use std::cell::{Cell, RefCell};
@@ -50,7 +51,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
   }
 
-  fn error(&self, code: Option<ErrorInfo<'a>>) {
+  fn error(&self, code: Option<ErrorInfo<'a>>) -> ! {
     // todo
     let info = self.current_token.error_code.unwrap_or(ViError::E0000);
     let info = code.unwrap_or(info.to_info());
@@ -251,7 +252,7 @@ impl<'a, 'b> Parser<'a, 'b> {
 
   fn is_typename(&self) -> bool {
     match self.current_token.t_type() {
-      TokenType::INT | TokenType::CHAR => true,
+      TokenType::INT | TokenType::CHAR | TokenType::STRUCT => true,
       _ => false,
     }
   }
@@ -369,27 +370,60 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
   }
 
+  fn struct_member_offset(&self, name: &str, ty: &Rc<Type>) -> TMember {
+    for mem in ty.members.as_ref().unwrap().borrow().iter() {
+      if mem.name == name {
+        return mem.clone();
+      }
+    }
+    self.error(Some(ViError::EP006.to_info()));
+  }
+
   fn postfix(&mut self) -> AstNode {
-    // postfix = primary ("[" expr "]")*
+    // postfix = primary ("[" expr "]" | "." ident)*
     let mut node = self.primary();
-    while self.match_tok(TokenType::LEFT_SQR_BRACKET) {
-      let line = self.previous_token.line;
-      // x[y] is a sugar for *(x+y)
-      let index = self.expr();
-      self.consume(TokenType::RIGHT_SQR_BRACKET);
-      let tmp = UnaryNode {
-        op: OpType::DEREF,
-        node: Box::new(AstNode::BinaryNode(BinaryNode {
-          left_node: Box::new(node),
-          right_node: Box::new(index),
-          op: OpType::PLUS,
-          ty: self.ty(),
-          // line,
-        })),
-        ty: RefCell::new(Rc::new(Type::default())),
-        line,
-      };
-      node = AstNode::UnaryNode(tmp);
+    loop {
+      if self.match_tok(TokenType::LEFT_SQR_BRACKET) {
+        let line = self.previous_token.line;
+        // x[y] is a sugar for *(x+y)
+        let index = self.expr();
+        self.consume(TokenType::RIGHT_SQR_BRACKET);
+        let tmp = UnaryNode {
+          op: OpType::DEREF,
+          member_t: None,
+          node: Box::new(AstNode::BinaryNode(BinaryNode {
+            left_node: Box::new(node),
+            right_node: Box::new(index),
+            op: OpType::PLUS,
+            ty: self.ty(),
+            // line,
+          })),
+          ty: RefCell::new(Rc::new(Type::default())),
+          line,
+        };
+        node = AstNode::UnaryNode(tmp);
+      } else if self.match_tok(TokenType::DOT) {
+        // expr.id (struct member access)
+        let line = self.previous_token.line;
+        self.consume(TokenType::IDENT);
+        let name = self.previous_token.value();
+        propagate_types(&node);
+        let ty = get_type(&node);
+        if ty.kind.get() != TypeLiteral::TYPE_STRUCT {
+          self.error(Some(ViError::EP005.to_info()));
+        }
+        let member = self.struct_member_offset(name, &ty);
+        let node_ty = member.ty.clone();
+        node = AstNode::UnaryNode(UnaryNode {
+          node: Box::new(node),
+          op: OpType::DOT,
+          line,
+          member_t: Some(member),
+          ty: RefCell::new(node_ty),
+        });
+      } else {
+        break;
+      }
     }
     node
   }
@@ -410,10 +444,11 @@ impl<'a, 'b> Parser<'a, 'b> {
         }
         let node = self.unary();
         AstNode::UnaryNode(UnaryNode {
-          node: Box::new(node),
-          op,
-          line,
           ty: RefCell::new(Rc::new(Type::default())),
+          node: Box::new(node),
+          member_t: None,
+          line,
+          op,
         })
       }
       _ => self.postfix(),
@@ -543,10 +578,52 @@ impl<'a, 'b> Parser<'a, 'b> {
     })
   }
 
+  fn create_member(
+    &mut self,
+    base_ty: &Type,
+    offset: u32,
+  ) -> (TMember, u32) {
+    let ((ty, _params), name) = self.declarator(&base_ty);
+    let size = ty.size;
+    (
+      TMember {
+        name,
+        ty: Rc::new(ty),
+        offset,
+      },
+      offset + size,
+    )
+  }
+
+  fn struct_decl(&mut self) -> Type {
+    // struct-decl = "{" (declspec declarator (","  declarator)* ";")* "}"
+    self.consume(TokenType::LEFT_CURLY);
+    let mut members = vec![];
+    let mut offset = 0;
+    while !self.match_tok(TokenType::RIGHT_CURLY) {
+      let base_ty = self.declspec();
+      let (member, next_offset) = self.create_member(&base_ty, offset);
+      offset = next_offset;
+      members.push(member);
+      while !self.match_tok(TokenType::SEMI_COLON) {
+        self.consume(TokenType::COMMA);
+        let (member, next_offset) = self.create_member(&base_ty, offset);
+        members.push(member);
+        offset = next_offset;
+      }
+    }
+    let mut ty = Type::new(TypeLiteral::TYPE_STRUCT);
+    ty.members.replace(RefCell::new(members));
+    ty.size = offset;
+    ty
+  }
+
   fn declspec(&mut self) -> Type {
-    // declspec = "char" | "int"
+    // declspec = "char" | "int" | struct-decl
     if self.match_tok(TokenType::CHAR) {
       return Type::new(TypeLiteral::TYPE_CHAR);
+    } else if self.match_tok(TokenType::STRUCT) {
+      return self.struct_decl();
     }
     self.consume(TokenType::INT);
     Type::new(TypeLiteral::TYPE_INT)
