@@ -16,6 +16,7 @@ pub struct BinaryNode {
   pub(crate) left_node: Box<AstNode>,
   pub(crate) right_node: Box<AstNode>,
   pub(crate) op: OpType,
+  pub(crate) ty: RefCell<Rc<Type>>,
 }
 
 #[derive(Debug)]
@@ -50,6 +51,7 @@ pub struct AssignNode {
   pub(crate) left_node: Box<AstNode>,
   pub(crate) right_node: Box<AstNode>,
   pub(crate) op: OpType,
+  pub(crate) ty: RefCell<Rc<Type>>,
 }
 
 #[derive(Debug)]
@@ -68,6 +70,7 @@ pub struct FunctionNode {
 pub struct ReturnNode {
   pub(crate) expr: Box<AstNode>,
   pub(crate) line: i32,
+  pub(crate) ty: RefCell<Rc<Type>>,
 }
 
 #[derive(Debug)]
@@ -114,6 +117,7 @@ pub struct FnCallNode {
   pub(crate) name: String,
   pub(crate) args: Vec<AstNode>,
   pub(crate) line: i32,
+  pub(crate) ty: RefCell<Rc<Type>>,
 }
 
 #[derive(Debug)]
@@ -121,12 +125,14 @@ pub struct SizeofNode {
   pub(crate) size: Cell<u32>,
   pub(crate) node: Box<AstNode>,
   pub(crate) line: i32,
+  pub(crate) ty: RefCell<Rc<Type>>,
 }
 
 #[derive(Debug)]
 pub struct StmtExprNode {
   pub(crate) stmts: Vec<AstNode>,
   pub(crate) line: i32,
+  pub(crate) ty: RefCell<Rc<Type>>,
 }
 
 #[derive(Debug)]

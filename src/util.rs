@@ -38,3 +38,13 @@ pub(crate) fn error(why: &str, code: i32) {
   eprintln!("{}", why);
   exit(code);
 }
+
+#[macro_export]
+macro_rules! verror {
+  ($($msg:tt)*) => {
+    {
+      dbg!($($msg)*);
+      panic!($($msg)*)
+    }
+  }
+}

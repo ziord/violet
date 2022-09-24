@@ -1,5 +1,6 @@
 use crate::ast::{AstNode, BlockStmtNode, VarDeclNode};
-use crate::types::{Type, TypeCheck};
+use crate::check::TypeCheck;
+use crate::types::Type;
 use crate::unbox;
 use std::borrow::{Borrow, BorrowMut};
 use std::collections::{BTreeMap, VecDeque};

@@ -256,6 +256,10 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
   }
 
+  fn ty(&self) -> RefCell<Rc<Type>> {
+    RefCell::new(Type::rc_default())
+  }
+
   fn num(&mut self) -> AstNode {
     let line = self.current_token.line;
     self.consume(TokenType::NUM);
@@ -294,7 +298,12 @@ impl<'a, 'b> Parser<'a, 'b> {
         args.push(self.assign());
       }
     }
-    AstNode::FnCallNode(FnCallNode { name, args, line })
+    AstNode::FnCallNode(FnCallNode {
+      name,
+      args,
+      line,
+      ty: self.ty(), // todo: change somewhere
+    })
   }
 
   fn primary(&mut self) -> AstNode {
@@ -312,7 +321,11 @@ impl<'a, 'b> Parser<'a, 'b> {
         }
         let block = self.compound_stmt();
         let stmts = unbox!(BlockStmtNode, block).stmts;
-        let node = AstNode::StmtExprNode(StmtExprNode { stmts, line });
+        let node = AstNode::StmtExprNode(StmtExprNode {
+          stmts,
+          line,
+          ty: self.ty(),
+        });
         self.consume(TokenType::RIGHT_BRACKET);
         return node;
       }
@@ -332,6 +345,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       AstNode::SizeofNode(SizeofNode {
         size: Cell::new(0),
         node: Box::new(self.unary()),
+        ty: self.ty(),
         line,
       })
     } else if self.match_tok(TokenType::STRING) {
@@ -369,6 +383,7 @@ impl<'a, 'b> Parser<'a, 'b> {
           left_node: Box::new(node),
           right_node: Box::new(index),
           op: OpType::PLUS,
+          ty: self.ty(),
           // line,
         })),
         ty: RefCell::new(Rc::new(Type::default())),
@@ -416,6 +431,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       left = AstNode::BinaryNode(BinaryNode {
         left_node: Box::new(left),
         right_node: Box::new(right),
+        ty: self.ty(),
         op,
       });
     }
@@ -433,6 +449,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       left = AstNode::BinaryNode(BinaryNode {
         left_node: Box::new(left),
         right_node: Box::new(right),
+        ty: self.ty(),
         op,
       });
     }
@@ -454,6 +471,7 @@ impl<'a, 'b> Parser<'a, 'b> {
           left = AstNode::BinaryNode(BinaryNode {
             left_node: Box::new(left),
             right_node: Box::new(right),
+            ty: self.ty(),
             op,
           });
         }
@@ -474,6 +492,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       left = AstNode::BinaryNode(BinaryNode {
         left_node: Box::new(left),
         right_node: Box::new(right),
+        ty: self.ty(),
         op,
       });
     }
@@ -489,6 +508,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       return AstNode::AssignNode(AssignNode {
         left_node: Box::new(left),
         right_node: Box::new(right),
+        ty: self.ty(),
         op,
       });
     }
@@ -502,6 +522,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       return AstNode::BinaryNode(BinaryNode {
         left_node: Box::new(node),
         right_node: Box::new(self.expr()),
+        ty: self.ty(),
         op: OpType::COMMA,
       });
     }
@@ -770,6 +791,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         self.consume(TokenType::SEMI_COLON);
         return AstNode::ReturnNode(ReturnNode {
           expr: Box::new(node),
+          ty: self.ty(),
           line,
         });
       }

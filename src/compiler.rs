@@ -3,9 +3,11 @@ use crate::ast::{
   AstNode, BinaryNode, BlockStmtNode, FunctionNode, NumberNode,
   ProgramNode, VarDeclListNode, VarDeclNode, VarNode,
 };
+use crate::check::TypeCheck;
 use crate::lexer::OpType;
 use crate::parser::Parser;
-use crate::types::{Type, TypeCheck, TypeLiteral};
+use crate::propagate::{get_type, propagate_types};
+use crate::types::{Type, TypeLiteral};
 use crate::unbox;
 use crate::util;
 use std::borrow::Borrow;
@@ -335,7 +337,7 @@ impl<'a> Compiler<'a> {
     self.emit_address(left_node);
     self.push_reg();
     self.c_(right_node);
-    let ty = self.tc(left_node).unwrap();
+    let ty = get_type(left_node);
     self.emit_store(&ty);
     self.emit_comment("(end assignment)");
   }
@@ -382,7 +384,7 @@ impl<'a> Compiler<'a> {
       // %rax -> %rax + %rdi
       vprintln!(self, "  add %rdi, %rax"); // left + right
     } else {
-      if right_ty.kind.get() == TypeLiteral::TYPE_INT {
+      if right_ty.is_integer() {
         // ptr - int -> ptr - (int * ptr_size)
         self.c_(right);
         vprintln!(self, "  imul ${}, %rax, %rax", ptr_size);
@@ -410,12 +412,10 @@ impl<'a> Compiler<'a> {
     let node = unbox!(BinaryNode, node);
     if node.op == OpType::PLUS || node.op == OpType::MINUS {
       // type-check, if any of the operand is a pointer, use c_ptr_binary
-      let left_ty = self.tc(&node.left_node).unwrap();
-      let right_ty = self.tc(&node.right_node).unwrap();
-      if left_ty.subtype.borrow().is_some()
-        && right_ty.kind.get() == TypeLiteral::TYPE_INT
-        || left_ty.kind.get() == TypeLiteral::TYPE_INT
-          && right_ty.subtype.borrow().is_some()
+      let left_ty = get_type(&node.left_node);
+      let right_ty = get_type(&node.right_node);
+      if left_ty.subtype.borrow().is_some() && right_ty.is_integer()
+        || left_ty.is_integer() && right_ty.subtype.borrow().is_some()
         || left_ty.subtype.borrow().is_some()
           && right_ty.subtype.borrow().is_some()
       {
@@ -491,11 +491,8 @@ impl<'a> Compiler<'a> {
       OpType::DEREF => {
         self.emit_comment("(begin deref)");
         self.c_(&*u_node.node);
-        // todo: once type-checking is enabled, we can use the
-        //   unary node's type directly here, since it'll already
-        //   be propagated by the type checker
-        let node_ty = self.tc(node).unwrap();
-        self.emit_load(&node_ty);
+        let node_ty = &u_node.ty.borrow();
+        self.emit_load(node_ty);
         self.emit_comment("(end deref)");
       }
       OpType::ADDR => {
@@ -609,12 +606,10 @@ impl<'a> Compiler<'a> {
   }
 
   fn c_sizeof(&mut self, node: &AstNode) {
-    // todo: remove call to tc when typechecking is enabled in semantic analysis
-    let ty = self.tc(node);
     let node = unbox!(SizeofNode, node);
     let node = AstNode::NumberNode(NumberNode {
       value: node.size.get() as i32,
-      ty: RefCell::new(ty.unwrap()),
+      ty: RefCell::new(node.ty.borrow().clone()),
       line: node.line,
     });
     self.c_number(&node);
@@ -691,6 +686,7 @@ impl<'a> Compiler<'a> {
       return Err(res.unwrap_err());
     }
     let root = res.unwrap();
+    propagate_types(&root);
     // semantic analysis
     let mut sem = SemAnalyzer::new();
     if let Err(msg) = sem.analyze(&root, dis_tc) {

@@ -19,7 +19,6 @@ test-src:
 
 clean:
 	rm -rf target $(TESTS) tests/*.s tests/*.asm
-	# rm *.asm *.o tmp*
 	echo cleaned.
 
 fmt:

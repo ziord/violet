@@ -1,9 +1,11 @@
 mod analyzer;
 mod ast;
+mod check;
 mod compiler;
 mod errors;
 mod lexer;
 mod parser;
+mod propagate;
 mod types;
 mod util;
 
@@ -16,7 +18,7 @@ fn print_usage() {
 }
 
 fn parse_args() {
-  // compiler::compile_file("./samples/1.c", "", true);
+  // compiler::compile_file("../violet/grammars/foo.c", "../violet/tests/out.asm", true);
   // return;
   let args: Vec<String> = env::args().collect();
   if args.len() < 2 {
