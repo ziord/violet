@@ -12,17 +12,23 @@ use crate::unbox;
 use crate::util;
 use std::borrow::Borrow;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::io;
 use std::rc::Rc;
 
 const V_STDIN: &str = "-";
 
 #[derive(Debug)]
+struct VarInfo {
+  name: String,
+  scope: i32,
+  offset: i32,
+}
+
+#[derive(Debug)]
 struct GenState {
-  // name, (scope, offset)
-  symbols: HashMap<(String, i32), i32>,
-  stack_size: i32,
+  // name, scope, offset
+  symbols: Vec<VarInfo>,
+  stack_size: u32,
   counter: i32,
   current_fn: Option<String>,
 }
@@ -30,7 +36,7 @@ struct GenState {
 impl Default for GenState {
   fn default() -> Self {
     Self {
-      symbols: HashMap::new(),
+      symbols: Vec::new(),
       stack_size: 0,
       counter: 0,
       current_fn: None,
@@ -40,11 +46,20 @@ impl Default for GenState {
 
 impl GenState {
   fn get_offset(&self, name: &str, scope: i32) -> i32 {
-    if let Some(offset) = self.symbols.get(&(name.into(), scope)) {
-      *offset
-    } else {
-      panic!("Unknown variable '{}'", name);
+    for info in &self.symbols {
+      if info.scope == scope && info.name == name {
+        return info.offset;
+      }
     }
+    panic!("Unknown variable '{}'", name);
+  }
+
+  fn insert(&mut self, name: &str, scope: i32, offset: i32) {
+    self.symbols.push(VarInfo {
+      name: name.into(),
+      scope,
+      offset,
+    });
   }
 
   fn set_current_fn(&mut self, name: &str) {
@@ -128,10 +143,6 @@ impl<'a> Compiler<'a> {
     self.depth -= 1;
   }
 
-  fn align_to(&self, n: i32, align: i32) -> i32 {
-    (n + align - 1) / align * align
-  }
-
   fn store_lvar_offsets(&mut self, func: &FunctionNode) {
     /*
      *    |
@@ -142,12 +153,10 @@ impl<'a> Compiler<'a> {
     self.gen.symbols.clear();
     for (var_name, var_ty, scope) in &func.locals {
       offset += var_ty.size;
-      self
-        .gen
-        .symbols
-        .insert((var_name.clone(), *scope), -(offset as i32));
+      offset = Type::align_to(offset, var_ty.align);
+      self.gen.insert(var_name, *scope, -(offset as i32));
     }
-    func.stack_size.set(self.align_to(offset as i32, 16));
+    func.stack_size.set(Type::align_to(offset, 16));
   }
 
   fn get_address(&self, name: &str, scope: i32) -> String {

@@ -27,6 +27,7 @@ pub(crate) struct Parser<'a, 'b> {
   // type, name, init_data (string literal)
   globals: Vec<(Rc<Type>, String, Option<String>)>,
   current_scope: Rc<Scope<String, Rc<Type>>>,
+  scope_count: i32,
 }
 
 impl<K, V> Scope<K, V> {
@@ -47,6 +48,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       previous_token: Token::default(),
       locals: Vec::new(),
       current_scope: Rc::new(Scope::new()),
+      scope_count: 1,
       globals: vec![],
     }
   }
@@ -70,7 +72,8 @@ impl<'a, 'b> Parser<'a, 'b> {
       .replace(RefCell::new(self.current_scope.clone()));
     let level = self.current_scope.level.get();
     self.current_scope = Rc::new(other);
-    self.current_scope.level.set(level + 1);
+    self.current_scope.level.set(level + 1 + self.scope_count);
+    self.scope_count += 1;
   }
 
   fn leave_scope(&mut self) {
@@ -581,10 +584,17 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn create_member(
     &mut self,
     base_ty: &Type,
+    struct_ty: &mut Type,
     offset: u32,
   ) -> (TMember, u32) {
     let ((ty, _params), name) = self.declarator(&base_ty);
     let size = ty.size;
+    // align offset by ty's alignment
+    let offset = Type::align_to(offset, ty.align);
+    if ty.align > struct_ty.align {
+      // needed for aligning the struct type's size later
+      struct_ty.align = ty.align;
+    }
     (
       TMember {
         name,
@@ -600,22 +610,24 @@ impl<'a, 'b> Parser<'a, 'b> {
     self.consume(TokenType::LEFT_CURLY);
     let mut members = vec![];
     let mut offset = 0;
+    let mut struct_ty = Type::new(TypeLiteral::TYPE_STRUCT);
     while !self.match_tok(TokenType::RIGHT_CURLY) {
       let base_ty = self.declspec();
-      let (member, next_offset) = self.create_member(&base_ty, offset);
+      let (member, next_offset) =
+        self.create_member(&base_ty, &mut struct_ty, offset);
       offset = next_offset;
       members.push(member);
       while !self.match_tok(TokenType::SEMI_COLON) {
         self.consume(TokenType::COMMA);
-        let (member, next_offset) = self.create_member(&base_ty, offset);
+        let (member, next_offset) =
+          self.create_member(&base_ty, &mut struct_ty, offset);
         members.push(member);
         offset = next_offset;
       }
     }
-    let mut ty = Type::new(TypeLiteral::TYPE_STRUCT);
-    ty.members.replace(RefCell::new(members));
-    ty.size = offset;
-    ty
+    struct_ty.members.replace(RefCell::new(members));
+    struct_ty.size = Type::align_to(offset, struct_ty.align);
+    struct_ty
   }
 
   fn declspec(&mut self) -> Type {

@@ -36,6 +36,7 @@ pub struct Type {
   pub(crate) params: Option<RefCell<Vec<TParam>>>,
   pub(crate) members: Option<RefCell<Vec<TMember>>>,
   pub(crate) size: u32,
+  pub(crate) align: u32, // alignment
   pub(crate) array_len: u32,
 }
 
@@ -47,6 +48,7 @@ impl Default for Type {
       params: None,
       members: None,
       size: 0,
+      align: 1,
       array_len: 0,
     }
   }
@@ -60,6 +62,7 @@ impl From<Rc<Type>> for Type {
       params: ty.params.clone(),
       members: ty.members.clone(),
       size: ty.size,
+      align: ty.align,
       array_len: ty.array_len,
     }
   }
@@ -67,19 +70,42 @@ impl From<Rc<Type>> for Type {
 
 impl Type {
   pub(crate) fn new(kind: TypeLiteral) -> Self {
+    let (sz, al) = Self::get_sal(kind);
     Self {
       kind: Cell::new(kind),
       subtype: RefCell::new(None),
       params: None,
       members: None,
-      size: match kind {
-        // sub.size comes from here
-        TypeLiteral::TYPE_INT | TypeLiteral::TYPE_PTR => 8,
-        TypeLiteral::TYPE_CHAR => 1,
-        _ => 0,
-      },
+      size: sz,
+      align: al,
       array_len: 0,
     }
+  }
+
+  fn get_sal(kind: TypeLiteral) -> (u32, u32) {
+    // size, align
+    let sz;
+    let al;
+    match kind {
+      // sub.size comes from here
+      TypeLiteral::TYPE_INT | TypeLiteral::TYPE_PTR => {
+        sz = 8;
+        al = 8;
+      }
+      TypeLiteral::TYPE_CHAR => {
+        sz = 1;
+        al = 1;
+      }
+      TypeLiteral::TYPE_STRUCT => {
+        sz = 0;
+        al = 1;
+      }
+      _ => {
+        sz = 0;
+        al = 0;
+      }
+    };
+    (sz, al)
   }
 
   pub(crate) fn rc_default() -> Rc<Self> {
@@ -95,6 +121,7 @@ impl Type {
   pub(crate) fn array_of(sub: Type, len: u32) -> Type {
     let mut ty = Type::new(TypeLiteral::TYPE_ARRAY);
     ty.size = sub.size * len;
+    ty.align = sub.align;
     ty.array_len = len;
     ty.subtype.borrow_mut().replace(RefCell::new(Rc::new(sub)));
     ty
@@ -113,6 +140,10 @@ impl Type {
       TypeLiteral::TYPE_INT | TypeLiteral::TYPE_CHAR => true,
       _ => false,
     }
+  }
+
+  pub(crate) fn align_to(n: u32, align: u32) -> u32 {
+    (n + align - 1) / align * align
   }
 
   pub(crate) fn equals(&self, other: &Self) -> bool {
