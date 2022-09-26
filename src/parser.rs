@@ -402,8 +402,25 @@ impl<'a, 'b> Parser<'a, 'b> {
     self.error(Some(ViError::EP006.to_info()));
   }
 
+  fn struct_access(&self, node: AstNode, name: &str, line: i32) -> AstNode {
+    propagate_types(&node);
+    let ty = get_type(&node);
+    if ty.kind.get() != TypeLiteral::TYPE_STRUCT {
+      self.error(Some(ViError::EP005.to_info()));
+    }
+    let member = self.struct_member_offset(name, &ty);
+    let node_ty = member.ty.clone();
+    AstNode::UnaryNode(UnaryNode {
+      node: Box::new(node),
+      op: OpType::DOT,
+      line,
+      member_t: Some(member),
+      ty: RefCell::new(node_ty),
+    })
+  }
+
   fn postfix(&mut self) -> AstNode {
-    // postfix = primary ("[" expr "]" | "." ident)*
+    // postfix = primary ("[" expr "]" | "." ident | "->" ident)*
     let mut node = self.primary();
     loop {
       if self.match_tok(TokenType::LEFT_SQR_BRACKET) {
@@ -421,7 +438,7 @@ impl<'a, 'b> Parser<'a, 'b> {
             ty: self.ty(),
             // line,
           })),
-          ty: RefCell::new(Rc::new(Type::default())),
+          ty: RefCell::new(Type::rc_default()),
           line,
         };
         node = AstNode::UnaryNode(tmp);
@@ -430,20 +447,22 @@ impl<'a, 'b> Parser<'a, 'b> {
         let line = self.previous_token.line;
         self.consume(TokenType::IDENT);
         let name = self.previous_token.value();
-        propagate_types(&node);
-        let ty = get_type(&node);
-        if ty.kind.get() != TypeLiteral::TYPE_STRUCT {
-          self.error(Some(ViError::EP005.to_info()));
-        }
-        let member = self.struct_member_offset(name, &ty);
-        let node_ty = member.ty.clone();
+        node = self.struct_access(node, name, line);
+      } else if self.match_tok(TokenType::ARROW) {
+        // expr->y is short for (*expr).y
+        // *expr
+        let line = self.previous_token.line;
+        self.consume(TokenType::IDENT);
+        let name = self.previous_token.value();
         node = AstNode::UnaryNode(UnaryNode {
           node: Box::new(node),
-          op: OpType::DOT,
-          line,
-          member_t: Some(member),
-          ty: RefCell::new(node_ty),
+          op: OpType::DEREF,
+          line: self.previous_token.line,
+          member_t: None,
+          ty: RefCell::new(Type::rc_default()),
         });
+        // (*expr).y
+        node = self.struct_access(node, name, line);
       } else {
         break;
       }
@@ -467,7 +486,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         }
         let node = self.unary();
         AstNode::UnaryNode(UnaryNode {
-          ty: RefCell::new(Rc::new(Type::default())),
+          ty: RefCell::new(Type::rc_default()),
           node: Box::new(node),
           member_t: None,
           line,

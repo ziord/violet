@@ -21,6 +21,7 @@ pub enum TokenType {
   LESS_EQUAL,        // <=
   GRT_EQUAL,         // >=
   EQUAL,             // =
+  ARROW,             // ->
   DOT,               // .
   SEMI_COLON,        // ;
   COMMA,             // ,
@@ -94,6 +95,7 @@ impl Display for TokenType {
       TokenType::ERROR => write!(f, "TOK<ERROR>"),
       TokenType::STAR => write!(f, "TOK<STAR>"),
       TokenType::COMMA => write!(f, "TOK<COMMA>"),
+      TokenType::ARROW => write!(f, "TOK<ARROW>"),
       TokenType::FWD_SLASH => write!(f, "TOK<FWD-SLASH>"),
       TokenType::LEFT_BRACKET => write!(f, "TOK<LEFT-BRACKET>"),
       TokenType::RIGHT_BRACKET => write!(f, "TOK<RIGHT-BRACKET>"),
@@ -437,7 +439,6 @@ impl<'a, 'b> Lexer<'a, 'b> {
     match ch {
       ',' => self.create_token(TokenType::COMMA),
       '+' => self.create_token(TokenType::PLUS),
-      '-' => self.create_token(TokenType::MINUS),
       '*' => self.create_token(TokenType::STAR),
       '&' => self.create_token(TokenType::AMP),
       '/' => self.create_token(TokenType::FWD_SLASH),
@@ -449,6 +450,14 @@ impl<'a, 'b> Lexer<'a, 'b> {
       '{' => self.create_token(TokenType::LEFT_CURLY),
       '}' => self.create_token(TokenType::RIGHT_CURLY),
       '"' => self.lex_string(),
+      '-' => {
+        if self.peek(None) == '>' {
+          self.advance();
+          self.create_token(TokenType::ARROW)
+        } else {
+          self.create_token(TokenType::MINUS)
+        }
+      }
       '<' => {
         if self.peek(None) == '=' {
           self.advance();
