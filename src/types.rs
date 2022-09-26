@@ -14,7 +14,7 @@ pub enum TypeLiteral {
   TYPE_UNION,
   TYPE_LONG,
   TYPE_SHORT,
-  // TYPE_VOID,
+  TYPE_VOID,
   // TYPE_BOOL,
 }
 
@@ -108,6 +108,10 @@ impl Type {
       }
       TypeLiteral::TYPE_STRUCT => {
         sz = 0;
+        al = 1;
+      }
+      TypeLiteral::TYPE_VOID => {
+        sz = 1;
         al = 1;
       }
       _ => {

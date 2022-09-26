@@ -49,11 +49,19 @@ fn prop_unary(node: &AstNode) -> Ty {
       }
     }
     OpType::DEREF => {
-      if ty.subtype.borrow().is_some() {
-        node
-          .ty
-          .replace(ty.subtype.borrow_mut().clone().unwrap().into_inner());
-        return node.ty.borrow().clone();
+      let tmp = ty.subtype.borrow();
+      if tmp.is_some() {
+        // ensure pointer to void isn't being de-referenced.
+        if !tmp
+          .as_ref()
+          .unwrap()
+          .borrow()
+          .kind_equal(TypeLiteral::TYPE_VOID)
+        {
+          node.ty.replace(tmp.clone().unwrap().into_inner());
+          return node.ty.borrow().clone();
+        }
+        verror!("Invalid target for dereference: attempt to dereference a void pointer");
       } else {
         verror!("Invalid target for dereference");
       }

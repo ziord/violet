@@ -11,6 +11,7 @@ pub enum ViError {
   EP004, // void statement expression
   EP005, // member (.) access on non-struct/union
   EP006, // no such struct/union member
+  EP007, // variable declared void (void x;)
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +83,11 @@ impl ViError {
         self,
         "No such member",
         "The member referenced is not defined for this type."
+      ),
+      ViError::EP007 => info!(
+        self,
+        "Variable declared 'void'",
+        "Maybe you meant to use 'void *' ?"
       ),
     }
   }

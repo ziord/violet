@@ -283,6 +283,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       | TokenType::LONG
       | TokenType::CHAR
       | TokenType::STRUCT
+      | TokenType::VOID
       | TokenType::UNION => true,
       _ => false,
     }
@@ -725,7 +726,8 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn declspec(&mut self) -> Type {
-    // declspec = "char" | "int" | "short" | "long" | struct-decl | union-decl
+    // declspec = "char" | "int" | "short" | "long"
+    //          | "void" | struct-decl | union-decl
     if self.match_tok(TokenType::CHAR) {
       return Type::new(TypeLiteral::TYPE_CHAR);
     } else if self.match_tok(TokenType::STRUCT) {
@@ -736,6 +738,8 @@ impl<'a, 'b> Parser<'a, 'b> {
       return Type::new(TypeLiteral::TYPE_LONG);
     } else if self.match_tok(TokenType::SHORT) {
       return Type::new(TypeLiteral::TYPE_SHORT);
+    } else if self.match_tok(TokenType::VOID) {
+      return Type::new(TypeLiteral::TYPE_VOID);
     }
     self.consume(TokenType::INT);
     Type::new(TypeLiteral::TYPE_INT)
@@ -858,6 +862,9 @@ impl<'a, 'b> Parser<'a, 'b> {
       i += 1;
       let line = self.current_token.line;
       let ((ty, _params), name) = self.declarator(&base_ty);
+      if ty.kind_equal(TypeLiteral::TYPE_VOID) {
+        self.error(Some(ViError::EP007.to_info()));
+      }
       let ty = RefCell::new(Rc::new(ty));
       // insert local
       let scope = self.store(&name, &ty.borrow());

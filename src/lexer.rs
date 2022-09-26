@@ -34,6 +34,7 @@ pub enum TokenType {
   UNION,             // union
   LONG,              // long
   SHORT,             // short
+  VOID,              // void
   SIZEOF,            // sizeof
   IF,                // if
   ELSE,              // else
@@ -127,6 +128,7 @@ impl Display for TokenType {
       TokenType::RETURN => write!(f, "TOK<RETURN>"),
       TokenType::LONG => write!(f, "TOK<LONG>"),
       TokenType::SHORT => write!(f, "TOK<SHORT>"),
+      TokenType::VOID => write!(f, "TOK<VOID>"),
       TokenType::STRUCT => write!(f, "TOK<STRUCT>"),
       TokenType::UNION => write!(f, "TOK<UNION>"),
       TokenType::SIZEOF => write!(f, "TOK<SIZEOF>"),
@@ -258,6 +260,7 @@ impl<'a, 'b> Lexer<'a, 'b> {
       ("union", TokenType::UNION),
       ("long", TokenType::LONG),
       ("short", TokenType::SHORT),
+      ("void", TokenType::VOID),
     ];
     Self {
       src,
