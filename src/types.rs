@@ -11,6 +11,7 @@ pub enum TypeLiteral {
   TYPE_FUNC,
   TYPE_ARRAY,
   TYPE_STRUCT,
+  TYPE_UNION,
   // TYPE_VOID,
   // TYPE_CHAR,
   // TYPE_BOOL,

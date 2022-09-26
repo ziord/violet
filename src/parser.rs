@@ -165,7 +165,10 @@ impl<'a, 'b> Parser<'a, 'b> {
       scope = tmp;
     }
     // todo: need to handle this
-    panic!("struct tag '{}' is not defined in the current scope", name)
+    panic!(
+      "struct/union tag '{}' is not defined in the current scope",
+      name
+    )
   }
 
   fn find_var_type(&self, name: &String) -> (Rc<Type>, i32) {
@@ -275,7 +278,10 @@ impl<'a, 'b> Parser<'a, 'b> {
 
   fn is_typename(&self) -> bool {
     match self.current_token.t_type() {
-      TokenType::INT | TokenType::CHAR | TokenType::STRUCT => true,
+      TokenType::INT
+      | TokenType::CHAR
+      | TokenType::STRUCT
+      | TokenType::UNION => true,
       _ => false,
     }
   }
@@ -393,7 +399,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
   }
 
-  fn struct_member_offset(&self, name: &str, ty: &Rc<Type>) -> TMember {
+  fn member_offset(&self, name: &str, ty: &Rc<Type>) -> TMember {
     for mem in ty.members.as_ref().unwrap().borrow().iter() {
       if mem.name == name {
         return mem.clone();
@@ -402,13 +408,15 @@ impl<'a, 'b> Parser<'a, 'b> {
     self.error(Some(ViError::EP006.to_info()));
   }
 
-  fn struct_access(&self, node: AstNode, name: &str, line: i32) -> AstNode {
+  fn member_access(&self, node: AstNode, name: &str, line: i32) -> AstNode {
     propagate_types(&node);
     let ty = get_type(&node);
-    if ty.kind.get() != TypeLiteral::TYPE_STRUCT {
+    if ty.kind.get() != TypeLiteral::TYPE_STRUCT
+      && ty.kind.get() != TypeLiteral::TYPE_UNION
+    {
       self.error(Some(ViError::EP005.to_info()));
     }
-    let member = self.struct_member_offset(name, &ty);
+    let member = self.member_offset(name, &ty);
     let node_ty = member.ty.clone();
     AstNode::UnaryNode(UnaryNode {
       node: Box::new(node),
@@ -447,7 +455,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         let line = self.previous_token.line;
         self.consume(TokenType::IDENT);
         let name = self.previous_token.value();
-        node = self.struct_access(node, name, line);
+        node = self.member_access(node, name, line);
       } else if self.match_tok(TokenType::ARROW) {
         // expr->y is short for (*expr).y
         // *expr
@@ -462,7 +470,7 @@ impl<'a, 'b> Parser<'a, 'b> {
           ty: RefCell::new(Type::rc_default()),
         });
         // (*expr).y
-        node = self.struct_access(node, name, line);
+        node = self.member_access(node, name, line);
       } else {
         break;
       }
@@ -620,32 +628,46 @@ impl<'a, 'b> Parser<'a, 'b> {
     })
   }
 
-  fn create_member(
-    &mut self,
-    base_ty: &Type,
-    struct_ty: &mut Type,
-    offset: u32,
-  ) -> (TMember, u32) {
+  fn create_member(&mut self, base_ty: &Type) -> TMember {
     let ((ty, _params), name) = self.declarator(&base_ty);
-    let size = ty.size;
-    // align offset by ty's alignment
-    let offset = Type::align_to(offset, ty.align);
-    if ty.align > struct_ty.align {
-      // needed for aligning the struct type's size later
-      struct_ty.align = ty.align;
+    TMember {
+      name,
+      ty: Rc::new(ty),
+      offset: 0,
     }
-    (
-      TMember {
-        name,
-        ty: Rc::new(ty),
-        offset,
-      },
-      offset + size,
-    )
   }
 
-  fn struct_decl(&mut self) -> Type {
-    // struct-decl = ident? "{" (declspec declarator (","  declarator)* ";")* "}"
+  fn align_struct(
+    &mut self,
+    struct_ty: &mut Type,
+    members: &mut Vec<TMember>,
+  ) -> u32 {
+    let mut offset = 0;
+    for member in members {
+      offset = Type::align_to(offset, member.ty.align);
+      member.offset = offset;
+      offset += member.ty.size;
+      if member.ty.align > struct_ty.align {
+        struct_ty.align = member.ty.align;
+      }
+    }
+    offset
+  }
+
+  fn align_union(&mut self, union_ty: &mut Type, members: &Vec<TMember>) {
+    // no need for offset computation for union
+    for member in members {
+      if member.ty.size > union_ty.size {
+        union_ty.size = member.ty.size;
+      }
+      if member.ty.align > union_ty.align {
+        union_ty.align = member.ty.align;
+      }
+    }
+  }
+
+  fn struct_union_decl(&mut self, is_struct: bool) -> Type {
+    // struct-union-decl = ident? "{" (declspec declarator (","  declarator)* ";")* "}"
     let mut tag = String::new();
     if self.match_tok(TokenType::IDENT) {
       tag = self.previous_token.value().into();
@@ -656,37 +678,49 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
     self.consume(TokenType::LEFT_CURLY);
     let mut members = vec![];
-    let mut offset = 0;
-    let mut struct_ty = Type::new(TypeLiteral::TYPE_STRUCT);
+    let mut su_ty = Type::new(TypeLiteral::TYPE_STRUCT);
     while !self.match_tok(TokenType::RIGHT_CURLY) {
       let base_ty = self.declspec();
-      let (member, next_offset) =
-        self.create_member(&base_ty, &mut struct_ty, offset);
-      offset = next_offset;
-      members.push(member);
+      members.push(self.create_member(&base_ty));
       while !self.match_tok(TokenType::SEMI_COLON) {
         self.consume(TokenType::COMMA);
-        let (member, next_offset) =
-          self.create_member(&base_ty, &mut struct_ty, offset);
-        members.push(member);
-        offset = next_offset;
+        members.push(self.create_member(&base_ty));
       }
     }
-    struct_ty.members.replace(RefCell::new(members));
-    struct_ty.size = Type::align_to(offset, struct_ty.align);
+    if is_struct {
+      let offset = self.align_struct(&mut su_ty, &mut members);
+      su_ty.members.replace(RefCell::new(members));
+      su_ty.size = Type::align_to(offset, su_ty.align);
+    } else {
+      self.align_union(&mut su_ty, &mut members);
+      su_ty.members.replace(RefCell::new(members));
+      su_ty.size = Type::align_to(su_ty.size, su_ty.align);
+    }
     if !tag.is_empty() {
       // todo: cloning the type here is pretty expensive.
-      self.push_scope(&tag, &Rc::new(struct_ty.clone()), false);
+      self.push_scope(&tag, &Rc::new(su_ty.clone()), false);
     }
-    struct_ty
+    su_ty
+  }
+
+  fn struct_decl(&mut self) -> Type {
+    // struct-decl = struct-union-decl
+    self.struct_union_decl(true)
+  }
+
+  fn union_decl(&mut self) -> Type {
+    // union-decl = struct-union-decl
+    self.struct_union_decl(false)
   }
 
   fn declspec(&mut self) -> Type {
-    // declspec = "char" | "int" | struct-decl
+    // declspec = "char" | "int" | struct-decl | union-decl
     if self.match_tok(TokenType::CHAR) {
       return Type::new(TypeLiteral::TYPE_CHAR);
     } else if self.match_tok(TokenType::STRUCT) {
       return self.struct_decl();
+    } else if self.match_tok(TokenType::UNION) {
+      return self.union_decl();
     }
     self.consume(TokenType::INT);
     Type::new(TypeLiteral::TYPE_INT)
