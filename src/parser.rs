@@ -781,13 +781,11 @@ impl<'a, 'b> Parser<'a, 'b> {
       let base_ty = self.declspec();
       let ((ty, _), name) = self.declarator(&base_ty);
       let ty = Rc::new(ty);
-      // make parameters locally scoped to the function
-      let scope = self.store(&name, &ty);
       params.push(VarDeclNode {
         ty: RefCell::new(ty),
         name,
         value: None,
-        scope,
+        scope: 0,
         line,
       });
     }
@@ -1040,18 +1038,32 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn function(&mut self) -> AstNode {
-    // create new fn state
-    self.enter_scope();
     let line = self.current_token.line;
     let base_ty = self.declspec();
-    let ((ty, params), name) = self.declarator(&base_ty);
+    let ((ty, mut params), name) = self.declarator(&base_ty);
     if ty.kind.get() != TypeLiteral::TYPE_FUNC {
       return self.global_var_decl(base_ty, ty, name);
     }
-    self.consume(TokenType::LEFT_CURLY);
-    let list = self.compound_stmt();
-    // leave fn state
-    self.leave_scope();
+    let ty = Rc::new(ty);
+    // make function visible at the current scope
+    self.push_scope(&name, &ty, true);
+    let list;
+    let is_proto = self.match_tok(TokenType::SEMI_COLON);
+    if is_proto {
+      // function prototype
+      list = self.empty_stmt();
+    } else {
+      // create new fn state
+      self.enter_scope();
+      // make parameters locally scoped to the function
+      for param in params.as_mut().unwrap().iter_mut() {
+        param.scope = self.store(&param.name, &param.ty.borrow());
+      }
+      self.consume(TokenType::LEFT_CURLY);
+      list = self.compound_stmt();
+      // leave fn state
+      self.leave_scope();
+    }
     if let AstNode::BlockStmtNode(block) = list {
       AstNode::FunctionNode(FunctionNode {
         name,
@@ -1059,7 +1071,8 @@ impl<'a, 'b> Parser<'a, 'b> {
         stack_size: Cell::new(0),
         body: block,
         locals: std::mem::take(&mut self.locals),
-        ty: RefCell::new(Rc::new(ty)),
+        ty: RefCell::new(ty),
+        is_proto,
         line,
       })
     } else {

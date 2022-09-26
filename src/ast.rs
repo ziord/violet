@@ -63,6 +63,8 @@ pub struct FunctionNode {
   pub(crate) body: BlockStmtNode,
   // name, type, scope
   pub(crate) locals: Vec<(String, Rc<Type>, i32)>,
+  // is function definition/prototype
+  pub(crate) is_proto: bool,
   pub(crate) line: i32,
   pub(crate) ty: RefCell<Rc<Type>>,
 }

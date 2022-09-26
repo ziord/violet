@@ -688,6 +688,9 @@ impl<'a> Compiler<'a> {
 
   fn c_function(&mut self, node: &AstNode) {
     let mut func = unbox!(FunctionNode, node);
+    if func.is_proto {
+      return;
+    }
     self.gen.set_current_fn(&func.name);
     self.store_lvar_offsets(&mut func);
     self.emit_prologue(func);
