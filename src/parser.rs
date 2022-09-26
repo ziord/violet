@@ -13,7 +13,8 @@ use std::rc::Rc;
 #[derive(Debug)]
 struct Scope<K, V> {
   level: Cell<i32>,
-  items: RefCell<BTreeMap<K, V>>,
+  vars: RefCell<BTreeMap<K, V>>,
+  tags: RefCell<BTreeMap<K, V>>,
   enclosing: Option<RefCell<Rc<Scope<K, V>>>>,
 }
 
@@ -34,7 +35,8 @@ impl<K, V> Scope<K, V> {
   fn new() -> Self {
     Self {
       level: Cell::new(0),
-      items: RefCell::new(BTreeMap::new()),
+      vars: RefCell::new(BTreeMap::new()),
+      tags: RefCell::new(BTreeMap::new()),
       enclosing: (None),
     }
   }
@@ -87,12 +89,14 @@ impl<'a, 'b> Parser<'a, 'b> {
     self.current_scope = p;
   }
 
-  fn push_scope(&mut self, name: &str, ty: &Rc<Type>) {
-    self
-      .current_scope
-      .items
-      .borrow_mut()
-      .insert(name.into(), ty.clone());
+  fn push_scope(&mut self, name: &str, ty: &Rc<Type>, is_var: bool) {
+    let mut items;
+    if is_var {
+      items = self.current_scope.vars.borrow_mut();
+    } else {
+      items = self.current_scope.tags.borrow_mut();
+    }
+    items.insert(name.into(), ty.clone());
   }
 
   fn gen_id(&self) -> String {
@@ -134,7 +138,7 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn store(&mut self, name: &String, ty: &Rc<Type>) -> i32 {
     let scope = self.current_scope.level.get();
     self.locals.push((name.clone(), ty.clone(), scope));
-    self.push_scope(name, ty);
+    self.push_scope(name, ty, true);
     scope
   }
 
@@ -148,10 +152,26 @@ impl<'a, 'b> Parser<'a, 'b> {
     // don't push into current scope; reserve current scope for locals
   }
 
+  fn find_tag_type(&self, name: &String) -> (Rc<Type>, i32) {
+    let mut scope = self.current_scope.clone();
+    loop {
+      if let Some(v) = scope.tags.borrow().get(name) {
+        return (v.clone(), scope.level.get());
+      }
+      if scope.enclosing.is_none() {
+        break;
+      }
+      let tmp = scope.enclosing.as_ref().unwrap().borrow().clone();
+      scope = tmp;
+    }
+    // todo: need to handle this
+    panic!("struct tag '{}' is not defined in the current scope", name)
+  }
+
   fn find_var_type(&self, name: &String) -> (Rc<Type>, i32) {
     let mut scope = self.current_scope.clone();
     loop {
-      if let Some(v) = scope.items.borrow().get(name) {
+      if let Some(v) = scope.vars.borrow().get(name) {
         return (v.clone(), scope.level.get());
       }
       if scope.enclosing.is_none() {
@@ -606,7 +626,15 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn struct_decl(&mut self) -> Type {
-    // struct-decl = "{" (declspec declarator (","  declarator)* ";")* "}"
+    // struct-decl = ident? "{" (declspec declarator (","  declarator)* ";")* "}"
+    let mut tag = String::new();
+    if self.match_tok(TokenType::IDENT) {
+      tag = self.previous_token.value().into();
+      if !self.current_token.equal(TokenType::LEFT_CURLY) {
+        let (ty, _scope) = self.find_tag_type(&tag);
+        return ty.into();
+      }
+    }
     self.consume(TokenType::LEFT_CURLY);
     let mut members = vec![];
     let mut offset = 0;
@@ -627,6 +655,10 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
     struct_ty.members.replace(RefCell::new(members));
     struct_ty.size = Type::align_to(offset, struct_ty.align);
+    if !tag.is_empty() {
+      // todo: cloning the type here is pretty expensive.
+      self.push_scope(&tag, &Rc::new(struct_ty.clone()), false);
+    }
     struct_ty
   }
 
@@ -735,9 +767,6 @@ impl<'a, 'b> Parser<'a, 'b> {
     // declaration = declspec (declarator ("=" expr)? ("," declarator ("=" expr)?)*)? ";"
     let line = self.current_token.line;
     let base_ty = self.declspec();
-    if self.match_tok(TokenType::SEMI_COLON) {
-      self.error(Some(ViError::EP001.to_info()));
-    }
     let mut decls = vec![];
     let mut i = 0;
     while !self.match_tok(TokenType::SEMI_COLON) {
