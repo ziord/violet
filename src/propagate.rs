@@ -32,7 +32,7 @@ fn prop_unary(node: &AstNode) -> Ty {
     }
     OpType::ADDR => {
       return {
-        if ty.kind.get() == TypeLiteral::TYPE_ARRAY {
+        if ty.kind_equal(TypeLiteral::TYPE_ARRAY) {
           node.ty.replace(Rc::new(Type::pointer_to(
             ty.subtype
               .borrow()
@@ -84,7 +84,7 @@ fn binary_ty(node: &BinaryNode, left_ty: Ty, right_ty: Ty) -> Ty {
           return left_ty;
         }
         // ptr, ptr
-        else if right_ty.kind.get() == TypeLiteral::TYPE_PTR {
+        else if right_ty.kind_equal(TypeLiteral::TYPE_PTR) {
           return Rc::new(Type::new(TypeLiteral::TYPE_INT));
         }
       }

@@ -62,12 +62,12 @@ impl<'a> TypeCheck<'a> {
     // propagate
     match node.op {
       OpType::PLUS | OpType::MINUS => {
-        if ty.kind.get() == TypeLiteral::TYPE_INT {
+        if ty.kind_equal(TypeLiteral::TYPE_INT) {
           return Ok(ty);
         }
       }
       OpType::ADDR => {
-        return if ty.kind.get() == TypeLiteral::TYPE_ARRAY {
+        return if ty.kind_equal(TypeLiteral::TYPE_ARRAY) {
           Ok(Rc::new(Type::pointer_to(
             ty.subtype
               .borrow()
@@ -127,11 +127,11 @@ impl<'a> TypeCheck<'a> {
           }
         } else if left_ty.subtype.borrow().is_some() {
           // ptr/array/function, int
-          if right_ty.kind.get() == TypeLiteral::TYPE_INT {
+          if right_ty.kind_equal(TypeLiteral::TYPE_INT) {
             return Ok(left_ty);
           }
           // ptr, ptr
-          else if right_ty.kind.get() == TypeLiteral::TYPE_PTR {
+          else if right_ty.kind_equal(TypeLiteral::TYPE_PTR) {
             return Ok(Rc::new(Type::new(TypeLiteral::TYPE_INT)));
           }
         }
@@ -176,7 +176,11 @@ impl<'a> TypeCheck<'a> {
     if left_ty.is_err() {
       return left_ty;
     }
-    if left_ty.as_ref().unwrap().kind.get() == TypeLiteral::TYPE_ARRAY {
+    if left_ty
+      .as_ref()
+      .unwrap()
+      .kind_equal(TypeLiteral::TYPE_ARRAY)
+    {
       eprintln!("Type {:#?} is not an lvalue", left_ty.as_ref().unwrap());
       self.error_msg = Some("Not an lvalue");
       return Err(self.error_msg.unwrap());

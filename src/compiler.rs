@@ -274,6 +274,16 @@ impl<'a> Compiler<'a> {
   fn emit_store(&mut self, ty: &Type) {
     // val
     self.pop_reg("rdi");
+    if ty.kind_equal(TypeLiteral::TYPE_STRUCT)
+      || ty.kind_equal(TypeLiteral::TYPE_UNION)
+    {
+      // copy byte-by-byte into destination
+      for i in 0..ty.size {
+        vprintln!(self, "  mov {}(%rax), %r8b", i);
+        vprintln!(self, "  mov %r8b, {}(%rdi)", i);
+      }
+      return;
+    }
     // store val in memory location identified by rax
     if ty.size == 1 {
       vprintln!(self, "  mov %al, (%rdi)");
@@ -284,10 +294,13 @@ impl<'a> Compiler<'a> {
 
   fn emit_load(&mut self, ty: &Type) {
     // move value at address in memory into rax
-    if ty.kind.get() == TypeLiteral::TYPE_ARRAY {
+    match ty.kind.get() {
       // can't load entire array into register
-      return;
-    }
+      TypeLiteral::TYPE_ARRAY
+      | TypeLiteral::TYPE_STRUCT
+      | TypeLiteral::TYPE_UNION => return,
+      _ => {}
+    };
     if ty.size == 1 {
       // load a value at %rax in memory, and sign-extend it to 64 bits
       // storing it in %rax

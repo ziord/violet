@@ -143,6 +143,10 @@ impl Type {
     }
   }
 
+  pub(crate) fn kind_equal(&self, kind: TypeLiteral) -> bool {
+    self.kind.get() == kind
+  }
+
   pub(crate) fn align_to(n: u32, align: u32) -> u32 {
     (n + align - 1) / align * align
   }
