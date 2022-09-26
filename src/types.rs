@@ -89,7 +89,11 @@ impl Type {
     let al;
     match kind {
       // sub.size comes from here
-      TypeLiteral::TYPE_INT | TypeLiteral::TYPE_PTR => {
+      TypeLiteral::TYPE_INT => {
+        sz = 4;
+        al = 4;
+      }
+      TypeLiteral::TYPE_PTR => {
         sz = 8;
         al = 8;
       }

@@ -76,8 +76,9 @@ pub struct Compiler<'a> {
   out_file: Box<dyn io::Write>,
   depth: i32,
   gen: GenState,
-  arg_regs64: Vec<&'a str>,
   arg_regs8: Vec<&'a str>,
+  arg_regs32: Vec<&'a str>,
+  arg_regs64: Vec<&'a str>,
   tc: Option<TypeCheck<'a>>,
 }
 
@@ -110,8 +111,9 @@ impl<'a> Compiler<'a> {
       },
       depth: 0,
       gen: GenState::default(),
-      arg_regs64: vec!["rdi", "rsi", "rdx", "rcx", "r8", "r9"],
       arg_regs8: vec!["dil", "sil", "dl", "cl", "r8b", "r9b"],
+      arg_regs32: vec!["edi", "esi", "edx", "ecx", "r8d", "r9d"],
+      arg_regs64: vec!["rdi", "rsi", "rdx", "rcx", "r8", "r9"],
       tc: None,
     }
   }
@@ -180,6 +182,22 @@ impl<'a> Compiler<'a> {
       .unwrap()
       .set_current_fn(&self.gen.current_fn.as_ref().unwrap());
     self.tc.as_mut().unwrap().tc(node)
+  }
+
+  fn store_param(&mut self, param: &VarDeclNode, idx: usize) {
+    let size = param.ty.borrow().size;
+    vprintln!(
+      self,
+      "  mov %{}, {}",
+      if size == 1 {
+        self.arg_regs8[idx]
+      } else if size == 4 {
+        self.arg_regs32[idx]
+      } else {
+        self.arg_regs64[idx]
+      },
+      self.get_address(&param.name, param.scope)
+    );
   }
 
   ///********************
@@ -287,6 +305,8 @@ impl<'a> Compiler<'a> {
     // store val in memory location identified by rax
     if ty.size == 1 {
       vprintln!(self, "  mov %al, (%rdi)");
+    } else if ty.size == 4 {
+      vprintln!(self, "  mov %eax, (%rdi)");
     } else {
       vprintln!(self, "  mov %rax, (%rdi)");
     }
@@ -305,6 +325,8 @@ impl<'a> Compiler<'a> {
       // load a value at %rax in memory, and sign-extend it to 64 bits
       // storing it in %rax
       vprintln!(self, "  movsbq (%rax), %rax");
+    } else if ty.size == 4 {
+      vprintln!(self, " movslq (%rax), %rax");
     } else {
       vprintln!(self, "  mov (%rax), %rax");
     }
@@ -664,16 +686,7 @@ impl<'a> Compiler<'a> {
     // params
     for i in 0..func.params.len() {
       let param = func.params.get(i).unwrap();
-      vprintln!(
-        self,
-        "  mov %{}, {}",
-        if param.ty.borrow().size == 1 {
-          self.arg_regs8[i]
-        } else {
-          self.arg_regs64[i]
-        },
-        self.get_address(&func.params[i].name, func.params[i].scope)
-      );
+      self.store_param(param, i);
     }
     self.c_stmt_list(&func.body);
     assert_eq!(self.depth, 0, "Expected depth to be zero");
