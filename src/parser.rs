@@ -1,6 +1,6 @@
 use crate::ast::*;
 use crate::errors::{ErrorInfo, ViError};
-use crate::lexer::{Lexer, OpType, Token, TokenType};
+use crate::lexer::{LexState, Lexer, OpType, Token, TokenType};
 use crate::propagate::{get_type, propagate_types};
 use crate::types::{TMember, TParam, Type, TypeLiteral};
 use crate::unbox;
@@ -288,6 +288,15 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
   }
 
+  fn resume(&mut self, state: LexState, last_tok: Token<'a>) {
+    self.lexer.rewind(state);
+    self.current_token = last_tok;
+  }
+
+  fn pause(&mut self) -> (LexState, Token<'a>) {
+    (self.lexer.snapshot(), self.current_token)
+  }
+
   fn ty(&self) -> RefCell<Rc<Type>> {
     RefCell::new(Type::rc_default())
   }
@@ -448,7 +457,7 @@ impl<'a, 'b> Parser<'a, 'b> {
             ty: self.ty(),
             // line,
           })),
-          ty: RefCell::new(Type::rc_default()),
+          ty: self.ty(),
           line,
         };
         node = AstNode::UnaryNode(tmp);
@@ -469,7 +478,7 @@ impl<'a, 'b> Parser<'a, 'b> {
           op: OpType::DEREF,
           line: self.previous_token.line,
           member_t: None,
-          ty: RefCell::new(Type::rc_default()),
+          ty: self.ty(),
         });
         // (*expr).y
         node = self.member_access(node, name, line);
@@ -496,7 +505,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         }
         let node = self.unary();
         AstNode::UnaryNode(UnaryNode {
-          ty: RefCell::new(Type::rc_default()),
+          ty: self.ty(),
           node: Box::new(node),
           member_t: None,
           line,
@@ -810,10 +819,26 @@ impl<'a, 'b> Parser<'a, 'b> {
     &mut self,
     ty: &Type,
   ) -> ((Type, Option<Vec<VarDeclNode>>), String) {
-    // declarator = "*"* ident type-suffix
+    // declarator = "*"* ("(" ident ")" | "(" declarator ")" | ident) type-suffix
     let mut ty = ty.clone();
     while self.match_tok(TokenType::STAR) {
       ty = Type::pointer_to(ty);
+    }
+    if self.match_tok(TokenType::LEFT_BRACKET) {
+      // we need to skip everything within "(" and ")" to parse the actual type,
+      // afterwards, use the actual type as base for (parsing) everything within "(" and ")"
+      // this is achieved using self.pause() and self.resume().
+      let (start_state, start_tok) = self.pause();
+      self.declarator(&Type::default());
+      self.consume(TokenType::RIGHT_BRACKET);
+      let (base_ty, _) = self.type_suffix(&ty);
+      let (end_state, end_tok) = self.pause();
+      // reset to start_state and start token, and parse the inner type "("..")"
+      self.resume(start_state, start_tok);
+      let ((ty, _), name) = self.declarator(&base_ty);
+      // reset to the actual end_state after parsing the inner type
+      self.resume(end_state, end_tok);
+      return ((ty, None), name);
     }
     self.consume(TokenType::IDENT);
     let name = self.previous_token.value().into();

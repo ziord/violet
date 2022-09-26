@@ -195,7 +195,7 @@ impl<'a> Compiler<'a> {
         self.arg_regs8[idx]
       } else if size == 2 {
         self.arg_regs16[idx]
-      }  else if size == 4 {
+      } else if size == 4 {
         self.arg_regs32[idx]
       } else {
         self.arg_regs64[idx]

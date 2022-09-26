@@ -77,6 +77,13 @@ pub struct Token<'a> {
 }
 
 #[derive(Debug)]
+pub(crate) struct LexState {
+  pub(crate) line: i32,
+  pub(crate) column: i32,
+  pub(crate) current: usize,
+}
+
+#[derive(Debug)]
 pub struct Lexer<'a, 'b> {
   src: &'a str,
   at_error: bool,
@@ -427,6 +434,20 @@ impl<'a, 'b> Lexer<'a, 'b> {
     token.has_esc = has_esc;
     self.advance(); // skip the closing '"'
     token
+  }
+
+  pub(crate) fn snapshot(&self) -> LexState {
+    LexState {
+      current: self.current,
+      line: self.line,
+      column: self.column,
+    }
+  }
+
+  pub(crate) fn rewind(&mut self, state: LexState) {
+    self.current = state.current;
+    self.line = state.line;
+    self.column = state.column;
   }
 
   pub fn get_token(&mut self) -> Token<'a> {
