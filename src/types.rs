@@ -13,8 +13,8 @@ pub enum TypeLiteral {
   TYPE_STRUCT,
   TYPE_UNION,
   TYPE_LONG,
+  TYPE_SHORT,
   // TYPE_VOID,
-  // TYPE_CHAR,
   // TYPE_BOOL,
 }
 
@@ -90,6 +90,10 @@ impl Type {
     let al;
     match kind {
       // sub.size comes from here
+      TypeLiteral::TYPE_SHORT => {
+        sz = 2;
+        al = 2;
+      }
       TypeLiteral::TYPE_INT => {
         sz = 4;
         al = 4;
@@ -145,6 +149,7 @@ impl Type {
     match self.kind.get() {
       TypeLiteral::TYPE_INT
       | TypeLiteral::TYPE_CHAR
+      | TypeLiteral::TYPE_SHORT
       | TypeLiteral::TYPE_LONG => true,
       _ => false,
     }

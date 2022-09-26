@@ -77,6 +77,7 @@ pub struct Compiler<'a> {
   depth: i32,
   gen: GenState,
   arg_regs8: Vec<&'a str>,
+  arg_regs16: Vec<&'a str>,
   arg_regs32: Vec<&'a str>,
   arg_regs64: Vec<&'a str>,
   tc: Option<TypeCheck<'a>>,
@@ -112,6 +113,7 @@ impl<'a> Compiler<'a> {
       depth: 0,
       gen: GenState::default(),
       arg_regs8: vec!["dil", "sil", "dl", "cl", "r8b", "r9b"],
+      arg_regs16: vec!["di", "si", "dx", "cx", "r8w", "r9w"],
       arg_regs32: vec!["edi", "esi", "edx", "ecx", "r8d", "r9d"],
       arg_regs64: vec!["rdi", "rsi", "rdx", "rcx", "r8", "r9"],
       tc: None,
@@ -191,7 +193,9 @@ impl<'a> Compiler<'a> {
       "  mov %{}, {}",
       if size == 1 {
         self.arg_regs8[idx]
-      } else if size == 4 {
+      } else if size == 2 {
+        self.arg_regs16[idx]
+      }  else if size == 4 {
         self.arg_regs32[idx]
       } else {
         self.arg_regs64[idx]
@@ -305,6 +309,8 @@ impl<'a> Compiler<'a> {
     // store val in memory location identified by rax
     if ty.size == 1 {
       vprintln!(self, "  mov %al, (%rdi)");
+    } else if ty.size == 2 {
+      vprintln!(self, "  mov %ax, (%rdi)");
     } else if ty.size == 4 {
       vprintln!(self, "  mov %eax, (%rdi)");
     } else {
@@ -325,6 +331,8 @@ impl<'a> Compiler<'a> {
       // load a value at %rax in memory, and sign-extend it to 64 bits
       // storing it in %rax
       vprintln!(self, "  movsbq (%rax), %rax");
+    } else if ty.size == 2 {
+      vprintln!(self, " movswq (%rax), %rax");
     } else if ty.size == 4 {
       vprintln!(self, " movslq (%rax), %rax");
     } else {

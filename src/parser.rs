@@ -725,6 +725,8 @@ impl<'a, 'b> Parser<'a, 'b> {
       return self.union_decl();
     } else if self.match_tok(TokenType::LONG) {
       return Type::new(TypeLiteral::TYPE_LONG);
+    } else if self.match_tok(TokenType::SHORT) {
+      return Type::new(TypeLiteral::TYPE_SHORT);
     }
     self.consume(TokenType::INT);
     Type::new(TypeLiteral::TYPE_INT)
