@@ -664,7 +664,7 @@ impl<'a> Compiler<'a> {
   fn c_sizeof(&mut self, node: &AstNode) {
     let node = unbox!(SizeofNode, node);
     let node = AstNode::NumberNode(NumberNode {
-      value: node.size.get() as i32,
+      value: node.size.get() as i64,
       ty: RefCell::new(node.ty.borrow().clone()),
       line: node.line,
     });

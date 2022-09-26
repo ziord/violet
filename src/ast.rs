@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 #[derive(Debug)]
 pub struct NumberNode {
-  pub(crate) value: i32,
+  pub(crate) value: i64,
   pub(crate) line: i32,
   pub(crate) ty: RefCell<Rc<Type>>,
 }

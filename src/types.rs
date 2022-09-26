@@ -12,6 +12,7 @@ pub enum TypeLiteral {
   TYPE_ARRAY,
   TYPE_STRUCT,
   TYPE_UNION,
+  TYPE_LONG,
   // TYPE_VOID,
   // TYPE_CHAR,
   // TYPE_BOOL,
@@ -93,7 +94,7 @@ impl Type {
         sz = 4;
         al = 4;
       }
-      TypeLiteral::TYPE_PTR => {
+      TypeLiteral::TYPE_LONG | TypeLiteral::TYPE_PTR => {
         sz = 8;
         al = 8;
       }
@@ -142,7 +143,9 @@ impl Type {
 
   pub(crate) fn is_integer(&self) -> bool {
     match self.kind.get() {
-      TypeLiteral::TYPE_INT | TypeLiteral::TYPE_CHAR => true,
+      TypeLiteral::TYPE_INT
+      | TypeLiteral::TYPE_CHAR
+      | TypeLiteral::TYPE_LONG => true,
       _ => false,
     }
   }

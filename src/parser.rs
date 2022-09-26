@@ -279,6 +279,8 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn is_typename(&self) -> bool {
     match self.current_token.t_type() {
       TokenType::INT
+      | TokenType::SHORT
+      | TokenType::LONG
       | TokenType::CHAR
       | TokenType::STRUCT
       | TokenType::UNION => true,
@@ -714,13 +716,15 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn declspec(&mut self) -> Type {
-    // declspec = "char" | "int" | struct-decl | union-decl
+    // declspec = "char" | "int" | "short" | "long" | struct-decl | union-decl
     if self.match_tok(TokenType::CHAR) {
       return Type::new(TypeLiteral::TYPE_CHAR);
     } else if self.match_tok(TokenType::STRUCT) {
       return self.struct_decl();
     } else if self.match_tok(TokenType::UNION) {
       return self.union_decl();
+    } else if self.match_tok(TokenType::LONG) {
+      return Type::new(TypeLiteral::TYPE_LONG);
     }
     self.consume(TokenType::INT);
     Type::new(TypeLiteral::TYPE_INT)

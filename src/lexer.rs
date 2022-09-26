@@ -32,6 +32,8 @@ pub enum TokenType {
   RETURN,            // return
   STRUCT,            // struct
   UNION,             // union
+  LONG,              // long
+  SHORT,             // short
   SIZEOF,            // sizeof
   IF,                // if
   ELSE,              // else
@@ -116,6 +118,8 @@ impl Display for TokenType {
       TokenType::AMP => write!(f, "TOK<AMP>"),
       TokenType::IDENT => write!(f, "TOK<IDENTIFIER>"),
       TokenType::RETURN => write!(f, "TOK<RETURN>"),
+      TokenType::LONG => write!(f, "TOK<LONG>"),
+      TokenType::SHORT => write!(f, "TOK<SHORT>"),
       TokenType::STRUCT => write!(f, "TOK<STRUCT>"),
       TokenType::UNION => write!(f, "TOK<UNION>"),
       TokenType::SIZEOF => write!(f, "TOK<SIZEOF>"),
@@ -193,8 +197,8 @@ impl<'a> Token<'a> {
     }
   }
 
-  pub fn to_int(&self) -> i32 {
-    match self.value.parse::<i32>() {
+  pub fn to_int(&self) -> i64 {
+    match self.value.parse::<i64>() {
       Ok(x) => x,
       _ => 0,
     }
@@ -245,6 +249,8 @@ impl<'a, 'b> Lexer<'a, 'b> {
       ("char", TokenType::CHAR),
       ("struct", TokenType::STRUCT),
       ("union", TokenType::UNION),
+      ("long", TokenType::LONG),
+      ("short", TokenType::SHORT),
     ];
     Self {
       src,
