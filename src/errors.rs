@@ -12,6 +12,7 @@ pub enum ViError {
   EP005, // member (.) access on non-struct/union
   EP006, // no such struct/union member
   EP007, // variable declared void (void x;)
+  EP008, // invalid type declaration (void char x)
 }
 
 #[derive(Debug, Clone)]
@@ -88,6 +89,11 @@ impl ViError {
         self,
         "Variable declared 'void'",
         "Maybe you meant to use 'void *' ?"
+      ),
+      ViError::EP008 => info!(
+        self,
+        "Invalid type declaration",
+        "The type specified isn't valid in C"
       ),
     }
   }

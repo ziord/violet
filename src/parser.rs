@@ -726,23 +726,58 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn declspec(&mut self) -> Type {
-    // declspec = "char" | "int" | "short" | "long"
-    //          | "void" | struct-decl | union-decl
-    if self.match_tok(TokenType::CHAR) {
-      return Type::new(TypeLiteral::TYPE_CHAR);
-    } else if self.match_tok(TokenType::STRUCT) {
-      return self.struct_decl();
-    } else if self.match_tok(TokenType::UNION) {
-      return self.union_decl();
-    } else if self.match_tok(TokenType::LONG) {
-      return Type::new(TypeLiteral::TYPE_LONG);
-    } else if self.match_tok(TokenType::SHORT) {
-      return Type::new(TypeLiteral::TYPE_SHORT);
-    } else if self.match_tok(TokenType::VOID) {
-      return Type::new(TypeLiteral::TYPE_VOID);
+    // declspec = ("char" | "int" | "short" | "long"
+    //          | "void" | struct-decl | union-decl)+
+    #[allow(non_snake_case)]
+    let (VOID, CHAR, SHORT, INT, LONG, OTHER) = (1, 4, 16, 64, 256, 1024);
+    let mut count = 0;
+    let mut ty = Type::default();
+    while self.is_typename() {
+      if self.current_token.equal(TokenType::STRUCT)
+        || self.current_token.equal(TokenType::UNION)
+      {
+        if self.match_tok(TokenType::STRUCT) {
+          ty = self.struct_decl();
+        } else {
+          self.advance(); // skip token UNION
+          ty = self.union_decl();
+        }
+        count += OTHER;
+        continue;
+      }
+      if self.match_tok(TokenType::VOID) {
+        count += VOID;
+      } else if self.match_tok(TokenType::CHAR) {
+        count += CHAR;
+      } else if self.match_tok(TokenType::SHORT) {
+        count += SHORT;
+      } else if self.match_tok(TokenType::INT) {
+        count += INT;
+      } else if self.match_tok(TokenType::LONG) {
+        count += LONG;
+      } else {
+        unreachable!()
+      }
+      // validate and assign type
+      if count == VOID {
+        ty = Type::new(TypeLiteral::TYPE_VOID);
+      } else if count == CHAR {
+        ty = Type::new(TypeLiteral::TYPE_CHAR);
+      } else if count == SHORT || count == SHORT + INT {
+        ty = Type::new(TypeLiteral::TYPE_SHORT);
+      } else if count == INT {
+        ty = Type::new(TypeLiteral::TYPE_INT);
+      } else if count == LONG
+        || count == LONG + INT
+        || count == LONG + LONG
+        || count == LONG + LONG + INT
+      {
+        ty = Type::new(TypeLiteral::TYPE_LONG)
+      } else {
+        self.error(Some(ViError::EP008.to_info()));
+      }
     }
-    self.consume(TokenType::INT);
-    Type::new(TypeLiteral::TYPE_INT)
+    return ty;
   }
 
   fn func_type(
