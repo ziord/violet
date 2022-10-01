@@ -13,6 +13,7 @@ pub enum ViError {
   EP006, // no such struct/union member
   EP007, // variable declared void (void x;)
   EP008, // invalid type declaration (void char x)
+  EP009, // illegal use of typedef
 }
 
 #[derive(Debug, Clone)]
@@ -94,6 +95,11 @@ impl ViError {
         self,
         "Invalid type declaration",
         "The type specified isn't valid in C"
+      ),
+      ViError::EP009 => info!(
+        self,
+        "'typedef' storage class specifier not allowed in this context",
+        ""
       ),
     }
   }

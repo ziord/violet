@@ -322,6 +322,7 @@ impl<'a> SemAnalyzer<'a> {
     match node {
       AstNode::NumberNode(_) => self.sem_num(node),
       AstNode::StringNode(_) => self.sem_str(node),
+      AstNode::EmptyNode(_) => {}
       AstNode::BinaryNode(_) => self.sem_binary(node),
       AstNode::UnaryNode(_) => self.sem_unary(node),
       AstNode::ExprStmtNode(_) => self.sem_expr_stmt(node),

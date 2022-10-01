@@ -30,6 +30,7 @@ pub enum TokenType {
   RIGHT_CURLY,       // }
   AMP,               // &
   RETURN,            // return
+  TYPEDEF,           // typedef
   STRUCT,            // struct
   UNION,             // union
   LONG,              // long
@@ -126,6 +127,7 @@ impl Display for TokenType {
       TokenType::AMP => write!(f, "TOK<AMP>"),
       TokenType::IDENT => write!(f, "TOK<IDENTIFIER>"),
       TokenType::RETURN => write!(f, "TOK<RETURN>"),
+      TokenType::TYPEDEF => write!(f, "TOK<TYPEDEF>"),
       TokenType::LONG => write!(f, "TOK<LONG>"),
       TokenType::SHORT => write!(f, "TOK<SHORT>"),
       TokenType::VOID => write!(f, "TOK<VOID>"),
@@ -261,6 +263,7 @@ impl<'a, 'b> Lexer<'a, 'b> {
       ("long", TokenType::LONG),
       ("short", TokenType::SHORT),
       ("void", TokenType::VOID),
+      ("typedef", TokenType::TYPEDEF),
     ];
     Self {
       src,

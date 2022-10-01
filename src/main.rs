@@ -18,7 +18,7 @@ fn print_usage() {
 }
 
 fn parse_args() {
-  // compiler::compile_file("../violet/grammars/foo.c", "../violet/tests/out.asm");
+  // compiler::compile_file("../violet/grammars/foo.c", "");
   // return;
   let args: Vec<String> = env::args().collect();
   if args.len() < 2 {

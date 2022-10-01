@@ -10,10 +10,25 @@ use std::collections::{BTreeMap, VecDeque};
 use std::process::exit;
 use std::rc::Rc;
 
+#[derive(Debug, Clone)]
+struct VarProp {
+  ty: Rc<Type>,
+  is_typedef: bool,
+}
+
+impl VarProp {
+  fn new(ty: &Rc<Type>, is_typedef: bool) -> Self {
+    Self {
+      ty: ty.clone(),
+      is_typedef,
+    }
+  }
+}
+
 #[derive(Debug)]
 struct Scope<K, V> {
   level: Cell<i32>,
-  vars: RefCell<BTreeMap<K, V>>,
+  vars: RefCell<BTreeMap<K, VarProp>>,
   tags: RefCell<BTreeMap<K, V>>,
   enclosing: Option<RefCell<Rc<Scope<K, V>>>>,
 }
@@ -89,12 +104,12 @@ impl<'a, 'b> Parser<'a, 'b> {
     self.current_scope = p;
   }
 
-  fn scope_var(&mut self, name: &str, ty: &Rc<Type>) {
+  fn scope_var(&mut self, name: &str, prop: VarProp) {
     self
       .current_scope
       .vars
       .borrow_mut()
-      .insert(name.into(), ty.clone());
+      .insert(name.into(), prop);
   }
 
   fn scope_tag(&mut self, name: &str, ty: &Rc<Type>) {
@@ -141,21 +156,21 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
   }
 
-  fn store(&mut self, name: &String, ty: &Rc<Type>) -> i32 {
+  fn store(&mut self, name: &String, prop: VarProp) -> i32 {
     let scope = self.current_scope.level.get();
-    self.locals.push((name.clone(), ty.clone(), scope));
-    self.scope_var(name, ty);
+    self.locals.push((name.clone(), prop.ty.clone(), scope));
+    self.scope_var(name, prop);
     scope
   }
 
   fn store_global(
     &mut self,
     name: &String,
-    ty: &Rc<Type>,
+    prop: VarProp,
     data: Option<AstNode>,
   ) -> i32 {
-    self.scope_var(name, ty);
-    self.globals.push((ty.clone(), name.clone(), data));
+    self.globals.push((prop.ty.clone(), name.clone(), data));
+    self.scope_var(name, prop);
     self.current_scope.level.get()
   }
 
@@ -178,11 +193,11 @@ impl<'a, 'b> Parser<'a, 'b> {
     )
   }
 
-  fn find_var(&self, name: &String) -> (Rc<Type>, i32) {
+  fn _find_var(&self, name: &str) -> Option<(VarProp, i32)> {
     let mut scope = self.current_scope.clone();
     loop {
       if let Some(v) = scope.vars.borrow().get(name) {
-        return (v.clone(), scope.level.get());
+        return Some((v.clone(), scope.level.get()));
       }
       if scope.enclosing.is_none() {
         break;
@@ -190,8 +205,24 @@ impl<'a, 'b> Parser<'a, 'b> {
       let tmp = scope.enclosing.as_ref().unwrap().borrow().clone();
       scope = tmp;
     }
+    None
+  }
+
+  fn find_var(&self, name: &str) -> (VarProp, i32) {
+    if let Some(v) = self._find_var(name) {
+      return v;
+    }
     // todo: need to handle this
     panic!("variable '{}' is not defined in the current scope", name)
+  }
+
+  fn find_typedef(&self, name: &str) -> Option<Rc<Type>> {
+    if let Some(ret) = self._find_var(name) {
+      if ret.0.is_typedef {
+        return Some(ret.0.ty.clone());
+      }
+    }
+    None
   }
 
   fn convert_hex(&self, c: char) -> u32 {
@@ -286,9 +317,18 @@ impl<'a, 'b> Parser<'a, 'b> {
       | TokenType::CHAR
       | TokenType::STRUCT
       | TokenType::VOID
+      | TokenType::TYPEDEF
       | TokenType::UNION => true,
+      TokenType::IDENT => {
+        // for typedef'ed names
+        self.find_typedef(self.current_token.value()).is_some()
+      }
       _ => false,
     }
+  }
+
+  fn is_typedef(&self) -> bool {
+    self.current_token.equal(TokenType::TYPEDEF)
   }
 
   fn resume(&mut self, state: LexState, last_tok: Token<'a>) {
@@ -317,8 +357,8 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn variable(&mut self) -> AstNode {
     let line = self.previous_token.line;
     let name: String = self.previous_token.value().into();
-    let (ty, scope) = self.find_var(&name);
-    let ty = RefCell::new(ty);
+    let (prop, scope) = self.find_var(&name);
+    let ty = RefCell::new(prop.ty);
     AstNode::VarNode(VarNode {
       name,
       ty,
@@ -405,7 +445,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       // storing into global to make the string static.
       self.store_global(
         &name,
-        &ty,
+        VarProp::new(&ty, false),
         Some(AstNode::StringNode(StringNode {
           value: string,
           line,
@@ -704,7 +744,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     let mut members = vec![];
     let mut su_ty = Type::new(TypeLiteral::TYPE_STRUCT);
     while !self.match_tok(TokenType::RIGHT_CURLY) {
-      let base_ty = self.declspec();
+      let base_ty = self.declspec(false);
       members.push(self.create_member(&base_ty));
       while !self.match_tok(TokenType::SEMI_COLON) {
         self.consume(TokenType::COMMA);
@@ -737,14 +777,33 @@ impl<'a, 'b> Parser<'a, 'b> {
     self.struct_union_decl(false)
   }
 
-  fn declspec(&mut self) -> Type {
+  fn declspec(&mut self, allow_typedef: bool) -> Type {
     // declspec = ("char" | "int" | "short" | "long"
-    //          | "void" | struct-decl | union-decl)+
+    //          | "void" | struct-decl | union-decl
+    //          | "typedef")+
     #[allow(non_snake_case)]
     let (VOID, CHAR, SHORT, INT, LONG, OTHER) = (1, 4, 16, 64, 256, 1024);
     let mut count = 0;
-    let mut ty = Type::default();
+    // typedef unknown -> unknown defaults to int type
+    let mut ty = Type::new(TypeLiteral::TYPE_INT);
     while self.is_typename() {
+      if self.is_typedef() {
+        if allow_typedef {
+          self.advance();
+          continue;
+        } else {
+          self.error(Some(ViError::EP009.to_info()));
+        }
+      }
+      // check if the current token is a user defined type (i.e. typedef'ed)
+      if self.current_token.equal(TokenType::IDENT) {
+        if let Some(tmp_ty) = self.find_typedef(self.current_token.value())
+        {
+          self.advance(); // skip the token (which is an identifier)
+          ty = tmp_ty.into();
+          break;
+        }
+      }
       if self.current_token.equal(TokenType::STRUCT)
         || self.current_token.equal(TokenType::UNION)
       {
@@ -803,7 +862,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       .subtype
       .borrow_mut()
       .replace(RefCell::new(Rc::new(ty.clone())));
-    if params.len() > 0 {
+    if !params.is_empty() {
       // associate params type with func type
       let mut params_ty = vec![];
       for param in &params {
@@ -829,7 +888,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       }
       i += 1;
       let line = self.current_token.line;
-      let base_ty = self.declspec();
+      let base_ty = self.declspec(false);
       let ((ty, _), name) = self.declarator(&base_ty);
       let ty = Rc::new(ty);
       params.push(VarDeclNode {
@@ -899,7 +958,7 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn declaration(&mut self) -> AstNode {
     // declaration = declspec (declarator ("=" expr)? ("," declarator ("=" expr)?)*)? ";"
     let line = self.current_token.line;
-    let base_ty = self.declspec();
+    let base_ty = self.declspec(false);
     let mut decls = vec![];
     let mut i = 0;
     while !self.match_tok(TokenType::SEMI_COLON) {
@@ -914,7 +973,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       }
       let ty = RefCell::new(Rc::new(ty));
       // insert local
-      let scope = self.store(&name, &ty.borrow());
+      let scope = self.store(&name, VarProp::new(&ty.borrow(), false));
       if !self.match_tok(TokenType::EQUAL) {
         decls.push(VarDeclNode {
           name,
@@ -941,18 +1000,25 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn compound_stmt(&mut self) -> AstNode {
-    // compound-stmt = (declaration | stmt)* "}"
+    // compound-stmt = (typedef | declaration | stmt)* "}"
     let mut block = BlockStmtNode {
       stmts: vec![],
       // line: self.current_token.line,
     };
     self.enter_scope();
     while !self.match_tok(TokenType::RIGHT_CURLY) {
+      let node;
       if self.is_typename() {
-        block.stmts.push(self.declaration());
+        if self.is_typedef() {
+          let base_ty = self.declspec(true);
+          node = self.parse_typedef(base_ty);
+        } else {
+          node = self.declaration();
+        }
       } else {
-        block.stmts.push(self.stmt());
+        node = self.stmt();
       }
+      block.stmts.push(node);
     }
     self.leave_scope();
     AstNode::BlockStmtNode(block)
@@ -962,6 +1028,12 @@ impl<'a, 'b> Parser<'a, 'b> {
     AstNode::BlockStmtNode(BlockStmtNode {
       stmts: vec![],
       // line: self.current_token.line,
+    })
+  }
+
+  fn empty_node(&self) -> AstNode {
+    AstNode::EmptyNode(EmptyStmtNode {
+      line: self.current_token.line,
     })
   }
 
@@ -1065,7 +1137,7 @@ impl<'a, 'b> Parser<'a, 'b> {
   ) -> AstNode {
     let mut vars = vec![];
     let ty = Rc::new(ty);
-    let scope = self.store_global(&name, &ty, None);
+    let scope = self.store_global(&name, VarProp::new(&ty, false), None);
     let line = self.previous_token.line;
     vars.push(VarDeclNode {
       name,
@@ -1079,7 +1151,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       let line = self.current_token.line;
       let ((ty, _), name) = self.declarator(&base_ty);
       let ty = Rc::new(ty);
-      let scope = self.store_global(&name, &ty, None);
+      let scope = self.store_global(&name, VarProp::new(&ty, false), None);
       vars.push(VarDeclNode {
         name,
         ty: RefCell::new(ty),
@@ -1091,16 +1163,39 @@ impl<'a, 'b> Parser<'a, 'b> {
     AstNode::VarDeclListNode(VarDeclListNode { decls: vars, line })
   }
 
-  fn function(&mut self) -> AstNode {
-    let line = self.current_token.line;
-    let base_ty = self.declspec();
-    let ((ty, mut params), name) = self.declarator(&base_ty);
-    if ty.kind.get() != TypeLiteral::TYPE_FUNC {
-      return self.global_var_decl(base_ty, ty, name);
+  fn parse_typedef(&mut self, base_ty: Type) -> AstNode {
+    // typedef type alias ("," alias)* ";"
+    //         ^^^^
+    //        base_ty
+    let mut i = 0;
+    while !self.match_tok(TokenType::SEMI_COLON) {
+      if i > 0 {
+        self.consume(TokenType::COMMA);
+      }
+      i += 1;
+      let ((ty, _), alias) = self.declarator(&base_ty);
+      self.scope_var(
+        &alias,
+        VarProp {
+          ty: Rc::new(ty),
+          is_typedef: true,
+        },
+      );
     }
+    self.empty_node()
+  }
+
+  fn function(
+    &mut self,
+    name: String,
+    ty: Type,
+    mut params: Option<Vec<VarDeclNode>>,
+    line: i32,
+  ) -> AstNode {
+    // handle functions
     let ty = Rc::new(ty);
     // make function visible at the current scope
-    self.scope_var(&name, &ty);
+    self.scope_var(&name, VarProp::new(&ty, false));
     let list;
     let is_proto = self.match_tok(TokenType::SEMI_COLON);
     if is_proto {
@@ -1111,7 +1206,8 @@ impl<'a, 'b> Parser<'a, 'b> {
       self.enter_scope();
       // make parameters locally scoped to the function
       for param in params.as_mut().unwrap().iter_mut() {
-        param.scope = self.store(&param.name, &param.ty.borrow());
+        param.scope =
+          self.store(&param.name, VarProp::new(&param.ty.borrow(), false));
       }
       self.consume(TokenType::LEFT_CURLY);
       list = self.compound_stmt();
@@ -1134,12 +1230,31 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
   }
 
+  fn dispatch(&mut self) -> AstNode {
+    // (typedef | function-definition | global-variable)*
+    let line = self.current_token.line;
+    let is_typedef = self.is_typedef();
+    let base_ty = self.declspec(true);
+    // handle typedef
+    if is_typedef {
+      return self.parse_typedef(base_ty);
+    }
+    // handle global variable declarations
+    let ((ty, params), name) = self.declarator(&base_ty);
+    if ty.kind.get() != TypeLiteral::TYPE_FUNC {
+      return self.global_var_decl(base_ty, ty, name);
+    }
+    // handle functions
+    self.function(name, ty, params, line)
+  }
+
   pub fn parse(&mut self) -> AstNode {
-    // program = (function-definition | global-variable)*
+    // program = dispatch..>
     self.advance();
     let mut decls = VecDeque::new();
     while !self.match_tok(TokenType::EOF) {
-      decls.push_back(self.function());
+      // delegate..>
+      decls.push_back(self.dispatch());
     }
     // hoist static/global data
     let globals = std::mem::take(&mut self.globals);

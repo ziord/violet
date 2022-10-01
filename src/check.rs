@@ -434,6 +434,7 @@ impl<'a> TypeCheck<'a> {
     match node {
       AstNode::NumberNode(_) => self.tc_num(node),
       AstNode::StringNode(_) => self.tc_str(node),
+      AstNode::EmptyNode(_) => Ok(Type::rc_default()),
       AstNode::BinaryNode(_) => self.tc_binary(node),
       AstNode::UnaryNode(_) => self.tc_unary(node),
       AstNode::VarNode(nd) => self.tc_var(nd),

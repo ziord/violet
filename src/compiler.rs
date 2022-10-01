@@ -344,7 +344,7 @@ impl<'a> Compiler<'a> {
     let decls = node
       .decls
       .iter()
-      .filter(|n| !n.is_function())
+      .filter(|n| n.is_var_decl() || n.is_var_decl_list())
       .collect::<Vec<_>>();
     let mut all_decls = vec![];
     for decl in decls {
@@ -740,6 +740,7 @@ impl<'a> Compiler<'a> {
     match node {
       AstNode::NumberNode(_) => self.c_number(node),
       AstNode::StringNode(_) => self.c_str(node),
+      AstNode::EmptyNode(_) => {}
       AstNode::BinaryNode(_) => self.c_binary(node),
       AstNode::UnaryNode(_) => self.c_unary(node),
       AstNode::ExprStmtNode(_) => self.c_expr_stmt(node),

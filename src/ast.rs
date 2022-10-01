@@ -146,6 +146,11 @@ pub struct StmtExprNode {
 }
 
 #[derive(Debug)]
+pub struct EmptyStmtNode {
+  pub(crate) line: i32,
+}
+
+#[derive(Debug)]
 pub struct ProgramNode {
   pub(crate) decls: VecDeque<AstNode>,
 }
@@ -170,6 +175,7 @@ pub enum AstNode {
   FnCallNode(FnCallNode),
   SizeofNode(SizeofNode),
   StmtExprNode(StmtExprNode),
+  EmptyNode(EmptyStmtNode),
   ProgramNode(ProgramNode),
 }
 
@@ -203,10 +209,18 @@ impl AstNode {
     }
   }
 
+  pub(crate) fn is_var_decl_list(&self) -> bool {
+    match self {
+      AstNode::VarDeclListNode(_) => true,
+      _ => false,
+    }
+  }
+
   pub(crate) fn get_line(&self) -> Option<i32> {
     match self {
       AstNode::NumberNode(n) => Some(n.line),
       AstNode::StringNode(n) => Some(n.line),
+      AstNode::EmptyNode(n) => Some(n.line),
       AstNode::BinaryNode(_) => None,
       AstNode::UnaryNode(n) => Some(n.line),
       AstNode::ExprStmtNode(n) => Some(n.line),

@@ -247,6 +247,7 @@ fn prop(node: &AstNode) -> Ty {
   match node {
     AstNode::NumberNode(_) => prop_num(node),
     AstNode::StringNode(_) => prop_str(node),
+    AstNode::EmptyNode(_) => Type::rc_default(),
     AstNode::BinaryNode(_) => prop_binary(node),
     AstNode::UnaryNode(_) => prop_unary(node),
     AstNode::ExprStmtNode(_) => prop_expr_stmt(node),
@@ -287,6 +288,7 @@ pub(crate) fn get_type(node: &AstNode) -> Ty {
     | AstNode::ForLoopNode(_)
     | AstNode::WhileLoopNode(_)
     | AstNode::VarDeclListNode(_)
+    | AstNode::EmptyNode(_)
     | AstNode::ProgramNode(_) => Type::rc_default(),
   }
 }
