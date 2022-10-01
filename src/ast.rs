@@ -12,6 +12,13 @@ pub struct NumberNode {
 }
 
 #[derive(Debug)]
+pub struct StringNode {
+  pub(crate) value: String,
+  pub(crate) line: i32,
+  pub(crate) ty: RefCell<Rc<Type>>,
+}
+
+#[derive(Debug)]
 pub struct BinaryNode {
   pub(crate) left_node: Box<AstNode>,
   pub(crate) right_node: Box<AstNode>,
@@ -141,13 +148,12 @@ pub struct StmtExprNode {
 #[derive(Debug)]
 pub struct ProgramNode {
   pub(crate) decls: VecDeque<AstNode>,
-  // type, name, init_data (string literal)
-  pub(crate) globals: Vec<(Rc<Type>, String, Option<String>)>,
 }
 
 #[derive(Debug)]
 pub enum AstNode {
   NumberNode(NumberNode),
+  StringNode(StringNode),
   BinaryNode(BinaryNode),
   UnaryNode(UnaryNode),
   ExprStmtNode(ExprStmtNode),
@@ -173,15 +179,34 @@ macro_rules! unbox {
     if let AstNode::$tt(v_) = $nd {
       v_
     } else {
-      panic!("Couldn't unbind AstNode::{}", stringify!($tt));
+      panic!(
+        "Couldn't unbind to AstNode::{}, {:#?}",
+        stringify!($tt),
+        $nd
+      );
     }
   };
 }
 
 impl AstNode {
+  pub(crate) fn is_function(&self) -> bool {
+    match self {
+      AstNode::FunctionNode(_) => true,
+      _ => false,
+    }
+  }
+
+  pub(crate) fn is_var_decl(&self) -> bool {
+    match self {
+      AstNode::VarDeclNode(_) => true,
+      _ => false,
+    }
+  }
+
   pub(crate) fn get_line(&self) -> Option<i32> {
     match self {
       AstNode::NumberNode(n) => Some(n.line),
+      AstNode::StringNode(n) => Some(n.line),
       AstNode::BinaryNode(_) => None,
       AstNode::UnaryNode(n) => Some(n.line),
       AstNode::ExprStmtNode(n) => Some(n.line),

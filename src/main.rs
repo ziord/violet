@@ -18,7 +18,7 @@ fn print_usage() {
 }
 
 fn parse_args() {
-  // compiler::compile_file("../violet/grammars/foo.c", "../violet/tests/out.asm", true);
+  // compiler::compile_file("../violet/grammars/foo.c", "../violet/tests/out.asm");
   // return;
   let args: Vec<String> = env::args().collect();
   if args.len() < 2 {
@@ -28,7 +28,7 @@ fn parse_args() {
     "--help" => print_usage(),
     "-" => {
       // read from input
-      compiler::compile_file("-", "", true);
+      compiler::compile_file("-", "");
     }
     "-o" => {
       // specifies output path
@@ -40,13 +40,13 @@ fn parse_args() {
       } else if args.len() != 4 {
         util::error("No input file specified", 1);
       }
-      compiler::compile_file(&args[3], &args[2], true);
+      compiler::compile_file(&args[3], &args[2]);
     }
     _ => {
       if args.len() > 2 {
         util::error("Invalid number of arguments", 1);
       }
-      compiler::compile_file(&args[1], "", true)
+      compiler::compile_file(&args[1], "")
     }
   }
 }

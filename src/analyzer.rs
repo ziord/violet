@@ -194,6 +194,8 @@ impl<'a> SemAnalyzer<'a> {
     unbox!(NumberNode, node);
   }
 
+  fn sem_str(&mut self, node: &AstNode) {}
+
   fn sem_var(&mut self, node: &AstNode) {
     unbox!(VarNode, node);
   }
@@ -319,6 +321,7 @@ impl<'a> SemAnalyzer<'a> {
   fn sem(&mut self, node: &AstNode) {
     match node {
       AstNode::NumberNode(_) => self.sem_num(node),
+      AstNode::StringNode(_) => self.sem_str(node),
       AstNode::BinaryNode(_) => self.sem_binary(node),
       AstNode::UnaryNode(_) => self.sem_unary(node),
       AstNode::ExprStmtNode(_) => self.sem_expr_stmt(node),

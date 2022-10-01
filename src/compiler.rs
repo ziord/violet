@@ -341,27 +341,41 @@ impl<'a> Compiler<'a> {
   }
 
   fn emit_data(&mut self, node: &ProgramNode) {
-    if node.globals.is_empty() {
+    let decls = node
+      .decls
+      .iter()
+      .filter(|n| !n.is_function())
+      .collect::<Vec<_>>();
+    let mut all_decls = vec![];
+    for decl in decls {
+      if decl.is_var_decl() {
+        all_decls.push(unbox!(VarDeclNode, decl));
+      } else {
+        let decl_list = unbox!(VarDeclListNode, decl);
+        for decl in &decl_list.decls {
+          all_decls.push(decl);
+        }
+      }
+    }
+    if all_decls.is_empty() {
       return;
     }
+    let len = all_decls.len();
     vprintln!(self, "  .data");
     vprint!(self, "  .global ");
-    let len = node.globals.len();
-    for (i, (_, name, _)) in node.globals.iter().enumerate() {
-      vprint!(self, "{}", name);
+    for (i, decl) in all_decls.iter().enumerate() {
+      vprint!(self, "{}", decl.name);
       if i != len - 1 {
         vprint!(self, ", ");
       }
     }
     vprintln!(self);
-    for (ty, name, data) in &node.globals {
-      vprintln!(self, "{}:", name);
-      if let Some(dat) = data {
-        for val in dat.as_str().as_bytes() {
-          vprintln!(self, "  .byte {}", val);
-        }
+    for decl in all_decls {
+      vprintln!(self, "{}:", decl.name);
+      if let Some(dat) = &decl.value {
+        self.c_(dat);
       } else {
-        vprintln!(self, "  .zero {}", ty.size);
+        vprintln!(self, "  .zero {}", decl.ty.borrow().size);
       }
     }
   }
@@ -378,6 +392,13 @@ impl<'a> Compiler<'a> {
   fn c_number(&mut self, node: &AstNode) {
     let node = unbox!(NumberNode, node);
     vprintln!(self, "  mov ${}, %rax", node.value);
+  }
+
+  fn c_str(&mut self, node: &AstNode) {
+    let node = unbox!(StringNode, node);
+    for ch in node.value.as_bytes() {
+      vprintln!(self, "  .byte {}", ch);
+    }
   }
 
   fn c_var(&mut self, node: &AstNode) {
@@ -633,7 +654,8 @@ impl<'a> Compiler<'a> {
   }
 
   fn c_var_decl(&mut self, node: &VarDeclNode) {
-    if node.scope == -1 {
+    if node.scope < 1 {
+      // global
       return;
     }
     if let Some(val) = &node.value {
@@ -717,6 +739,7 @@ impl<'a> Compiler<'a> {
 
     match node {
       AstNode::NumberNode(_) => self.c_number(node),
+      AstNode::StringNode(_) => self.c_str(node),
       AstNode::BinaryNode(_) => self.c_binary(node),
       AstNode::UnaryNode(_) => self.c_unary(node),
       AstNode::ExprStmtNode(_) => self.c_expr_stmt(node),
@@ -737,7 +760,7 @@ impl<'a> Compiler<'a> {
     }
   }
 
-  pub fn compile(&mut self, dis_tc: bool) -> Result<i32, &'a str> {
+  pub fn compile(&mut self) -> Result<i32, &'a str> {
     // lex and parse
     let res = self.setup();
     if res.is_err() {
@@ -745,23 +768,15 @@ impl<'a> Compiler<'a> {
     }
     let root = res.unwrap();
     propagate_types(&root);
-    // semantic analysis
-    let mut sem = SemAnalyzer::new();
-    if let Err(msg) = sem.analyze(&root, dis_tc) {
-      return Err(msg);
-    }
-    // compile
-    self.tc.replace(TypeCheck::new(sem.move_tab()));
     vprintln!(self, ".file 1 \"{}\"", self.in_path);
     self.c_(&root);
     Ok(0)
   }
 }
 
-pub(crate) fn compile_file(in_file: &str, out_file: &str, dis_tc: bool) {
-  // todo: remove dis_tc
+pub(crate) fn compile_file(in_file: &str, out_file: &str) {
   let mut cmp = Compiler::new(in_file, out_file);
-  let res = cmp.compile(dis_tc);
+  let res = cmp.compile();
   if let Err(_v) = res {
     eprintln!("{}", _v);
   }

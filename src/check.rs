@@ -42,6 +42,10 @@ impl<'a> TypeCheck<'a> {
     Ok(unbox!(NumberNode, node).ty.borrow().clone())
   }
 
+  fn tc_str(&mut self, node: &AstNode) -> Result<Rc<Type>, &'a str> {
+    todo!()
+  }
+
   fn tc_var(&mut self, node: &VarNode) -> Result<Rc<Type>, &'a str> {
     if self.at_error {
       return Err(self.error_msg.unwrap());
@@ -429,6 +433,7 @@ impl<'a> TypeCheck<'a> {
     }
     match node {
       AstNode::NumberNode(_) => self.tc_num(node),
+      AstNode::StringNode(_) => self.tc_str(node),
       AstNode::BinaryNode(_) => self.tc_binary(node),
       AstNode::UnaryNode(_) => self.tc_unary(node),
       AstNode::VarNode(nd) => self.tc_var(nd),

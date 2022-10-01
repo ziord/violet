@@ -11,6 +11,10 @@ fn prop_num(node: &AstNode) -> Ty {
   unbox!(NumberNode, node).ty.borrow().clone()
 }
 
+fn prop_str(node: &AstNode) -> Ty {
+  unbox!(StringNode, node).ty.borrow().clone()
+}
+
 fn prop_var(node: &AstNode) -> Ty {
   unbox!(VarNode, node).ty.borrow().clone()
 }
@@ -242,6 +246,7 @@ fn prop_prog(node: &AstNode) -> Ty {
 fn prop(node: &AstNode) -> Ty {
   match node {
     AstNode::NumberNode(_) => prop_num(node),
+    AstNode::StringNode(_) => prop_str(node),
     AstNode::BinaryNode(_) => prop_binary(node),
     AstNode::UnaryNode(_) => prop_unary(node),
     AstNode::ExprStmtNode(_) => prop_expr_stmt(node),
@@ -265,6 +270,7 @@ fn prop(node: &AstNode) -> Ty {
 pub(crate) fn get_type(node: &AstNode) -> Ty {
   match node {
     AstNode::NumberNode(n) => n.ty.borrow().clone(),
+    AstNode::StringNode(n) => n.ty.borrow().clone(),
     AstNode::BinaryNode(n) => n.ty.borrow().clone(),
     AstNode::UnaryNode(n) => n.ty.borrow().clone(),
     AstNode::AssignNode(n) => n.ty.borrow().clone(),

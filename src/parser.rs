@@ -26,7 +26,7 @@ pub(crate) struct Parser<'a, 'b> {
   // name, type, scope
   locals: Vec<(String, Rc<Type>, i32)>,
   // type, name, init_data (string literal)
-  globals: Vec<(Rc<Type>, String, Option<String>)>,
+  globals: Vec<(Rc<Type>, String, Option<AstNode>)>,
   current_scope: Rc<Scope<String, Rc<Type>>>,
   scope_count: i32,
 }
@@ -89,14 +89,20 @@ impl<'a, 'b> Parser<'a, 'b> {
     self.current_scope = p;
   }
 
-  fn push_scope(&mut self, name: &str, ty: &Rc<Type>, is_var: bool) {
-    let mut items;
-    if is_var {
-      items = self.current_scope.vars.borrow_mut();
-    } else {
-      items = self.current_scope.tags.borrow_mut();
-    }
-    items.insert(name.into(), ty.clone());
+  fn scope_var(&mut self, name: &str, ty: &Rc<Type>) {
+    self
+      .current_scope
+      .vars
+      .borrow_mut()
+      .insert(name.into(), ty.clone());
+  }
+
+  fn scope_tag(&mut self, name: &str, ty: &Rc<Type>) {
+    self
+      .current_scope
+      .tags
+      .borrow_mut()
+      .insert(name.into(), ty.clone());
   }
 
   fn gen_id(&self) -> String {
@@ -138,7 +144,7 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn store(&mut self, name: &String, ty: &Rc<Type>) -> i32 {
     let scope = self.current_scope.level.get();
     self.locals.push((name.clone(), ty.clone(), scope));
-    self.push_scope(name, ty, true);
+    self.scope_var(name, ty);
     scope
   }
 
@@ -146,13 +152,14 @@ impl<'a, 'b> Parser<'a, 'b> {
     &mut self,
     name: &String,
     ty: &Rc<Type>,
-    data: Option<String>,
-  ) {
+    data: Option<AstNode>,
+  ) -> i32 {
+    self.scope_var(name, ty);
     self.globals.push((ty.clone(), name.clone(), data));
-    // don't push into current scope; reserve current scope for locals
+    self.current_scope.level.get()
   }
 
-  fn find_tag_type(&self, name: &String) -> (Rc<Type>, i32) {
+  fn find_tag(&self, name: &String) -> (Rc<Type>, i32) {
     let mut scope = self.current_scope.clone();
     loop {
       if let Some(v) = scope.tags.borrow().get(name) {
@@ -171,7 +178,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     )
   }
 
-  fn find_var_type(&self, name: &String) -> (Rc<Type>, i32) {
+  fn find_var(&self, name: &String) -> (Rc<Type>, i32) {
     let mut scope = self.current_scope.clone();
     loop {
       if let Some(v) = scope.vars.borrow().get(name) {
@@ -182,11 +189,6 @@ impl<'a, 'b> Parser<'a, 'b> {
       }
       let tmp = scope.enclosing.as_ref().unwrap().borrow().clone();
       scope = tmp;
-    }
-    for (var_ty, var_name, _data) in &self.globals {
-      if var_name == name {
-        return (var_ty.clone(), -1); // global -> -1
-      }
     }
     // todo: need to handle this
     panic!("variable '{}' is not defined in the current scope", name)
@@ -315,7 +317,7 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn variable(&mut self) -> AstNode {
     let line = self.previous_token.line;
     let name: String = self.previous_token.value().into();
-    let (ty, scope) = self.find_var_type(&name);
+    let (ty, scope) = self.find_var(&name);
     let ty = RefCell::new(ty);
     AstNode::VarNode(VarNode {
       name,
@@ -392,18 +394,28 @@ impl<'a, 'b> Parser<'a, 'b> {
       })
     } else if self.match_tok(TokenType::STRING) {
       // create a new global variable, and associate it with the string
-      let name = self.gen_id();
       let line = self.previous_token.line;
+      let name = self.gen_id();
       let string = self.process_str_literal();
       let ty = Rc::new(Type::array_of(
         Type::new(TypeLiteral::TYPE_CHAR),
         string.len() as u32,
       ));
-      self.store_global(&name, &ty, Some(string));
+      // we can't use the scope returned here, since scope level may not be 0.
+      // storing into global to make the string static.
+      self.store_global(
+        &name,
+        &ty,
+        Some(AstNode::StringNode(StringNode {
+          value: string,
+          line,
+          ty: RefCell::new(ty.clone()),
+        })),
+      );
       AstNode::VarNode(VarNode {
         name,
         ty: RefCell::new(ty),
-        scope: -1,
+        scope: 0,
         line,
       })
     } else {
@@ -684,7 +696,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     if self.match_tok(TokenType::IDENT) {
       tag = self.previous_token.value().into();
       if !self.current_token.equal(TokenType::LEFT_CURLY) {
-        let (ty, _scope) = self.find_tag_type(&tag);
+        let (ty, _scope) = self.find_tag(&tag);
         return ty.into();
       }
     }
@@ -710,7 +722,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
     if !tag.is_empty() {
       // todo: cloning the type here is pretty expensive.
-      self.push_scope(&tag, &Rc::new(su_ty.clone()), false);
+      self.scope_tag(&tag, &Rc::new(su_ty.clone()));
     }
     su_ty
   }
@@ -1053,13 +1065,13 @@ impl<'a, 'b> Parser<'a, 'b> {
   ) -> AstNode {
     let mut vars = vec![];
     let ty = Rc::new(ty);
-    self.store_global(&name, &ty, None);
+    let scope = self.store_global(&name, &ty, None);
     let line = self.previous_token.line;
     vars.push(VarDeclNode {
       name,
       ty: RefCell::new(ty),
       value: None,
-      scope: -1,
+      scope,
       line,
     });
     while !self.match_tok(TokenType::SEMI_COLON) {
@@ -1067,12 +1079,12 @@ impl<'a, 'b> Parser<'a, 'b> {
       let line = self.current_token.line;
       let ((ty, _), name) = self.declarator(&base_ty);
       let ty = Rc::new(ty);
-      self.store_global(&name, &ty, None);
+      let scope = self.store_global(&name, &ty, None);
       vars.push(VarDeclNode {
         name,
         ty: RefCell::new(ty),
         value: None,
-        scope: -1,
+        scope,
         line,
       });
     }
@@ -1088,7 +1100,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
     let ty = Rc::new(ty);
     // make function visible at the current scope
-    self.push_scope(&name, &ty, true);
+    self.scope_var(&name, &ty);
     let list;
     let is_proto = self.match_tok(TokenType::SEMI_COLON);
     if is_proto {
@@ -1129,21 +1141,21 @@ impl<'a, 'b> Parser<'a, 'b> {
     while !self.match_tok(TokenType::EOF) {
       decls.push_back(self.function());
     }
-    // hoist strings/static data
-    for (ty, name, data) in self.globals.iter().rev() {
+    // hoist static/global data
+    let globals = std::mem::take(&mut self.globals);
+    for (ty, name, data) in globals.into_iter().rev() {
+      // Only store nodes not already in global scope.
+      // Usually, this could be a StringNode found inside an expression.
       if data.is_some() {
         decls.push_front(AstNode::VarDeclNode(VarDeclNode {
-          name: name.clone(),
-          ty: RefCell::new(ty.clone()),
-          scope: -1,
-          value: None,
-          line: 0,
+          name,
+          ty: RefCell::new(ty),
+          scope: 0, // global scope is 0
+          value: Some(Box::new(data.unwrap())),
+          line: 0, // use a virtual line
         }));
       }
     }
-    AstNode::ProgramNode(ProgramNode {
-      decls,
-      globals: std::mem::take(&mut self.globals),
-    })
+    AstNode::ProgramNode(ProgramNode { decls })
   }
 }
