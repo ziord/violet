@@ -394,6 +394,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     // primary = "({" stmt+ "})"
     //          | "(" expr ")"
     //          | "sizeof" unary
+    //          | "sizeof" "(" type-name ")"
     //          | ident func-args?
     //          | num
     //          | str
@@ -425,6 +426,24 @@ impl<'a, 'b> Parser<'a, 'b> {
         self.variable()
       }
     } else if self.match_tok(TokenType::SIZEOF) {
+      // handle "sizeof" "(" type-name ")"
+      if self.current_token.equal(TokenType::LEFT_BRACKET) {
+        let (start_state, start_tok): (LexState, Token) = self.pause();
+        self.advance();
+        if self.is_typename() {
+          let line = self.current_token.line;
+          let ty = self.typename();
+          self.consume(TokenType::RIGHT_BRACKET);
+          return AstNode::NumberNode(NumberNode {
+            value: ty.size as i64,
+            ty: RefCell::new(Rc::new(ty)),
+            line,
+          });
+        }
+        // rewind back to "(" and fallback to unary()
+        self.resume(start_state, start_tok);
+      }
+      // handle "sizeof" unary
       let line = self.previous_token.line;
       AstNode::SizeofNode(SizeofNode {
         size: Cell::new(0),
@@ -923,6 +942,34 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
   }
 
+  fn typename(&mut self) -> Type {
+    // type-name = declspec abstract-declarator
+    let ty = self.declspec(false);
+    self.abstract_declarator(ty).0
+  }
+
+  fn abstract_declarator(
+    &mut self,
+    mut ty: Type,
+  ) -> (Type, Option<Vec<VarDeclNode>>) {
+    // abstract-declarator = "*"* ("(" abstract-declarator ")")? type-suffix
+    while self.match_tok(TokenType::STAR) {
+      ty = Type::pointer_to(ty);
+    }
+    while self.match_tok(TokenType::LEFT_BRACKET) {
+      let (start_state, start_tok): (LexState, Token) = self.pause();
+      self.abstract_declarator(Type::default());
+      self.consume(TokenType::RIGHT_BRACKET);
+      let (base_ty, _) = self.type_suffix(&ty);
+      let (end_state, end_tok): (LexState, Token) = self.pause();
+      self.resume(start_state, start_tok);
+      let (ty, p) = self.abstract_declarator(base_ty);
+      self.resume(end_state, end_tok);
+      return (ty, p);
+    }
+    self.type_suffix(&ty)
+  }
+
   fn declarator(
     &mut self,
     ty: &Type,
@@ -936,11 +983,11 @@ impl<'a, 'b> Parser<'a, 'b> {
       // we need to skip everything within "(" and ")" to parse the actual type,
       // afterwards, use the actual type as base for (parsing) everything within "(" and ")"
       // this is achieved using self.pause() and self.resume().
-      let (start_state, start_tok) = self.pause();
+      let (start_state, start_tok): (LexState, Token) = self.pause();
       self.declarator(&Type::default());
       self.consume(TokenType::RIGHT_BRACKET);
       let (base_ty, _) = self.type_suffix(&ty);
-      let (end_state, end_tok) = self.pause();
+      let (end_state, end_tok): (LexState, Token) = self.pause();
       // reset to start_state and start token, and parse the inner type "("..")"
       self.resume(start_state, start_tok);
       let ((ty, _), name) = self.declarator(&base_ty);
