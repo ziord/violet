@@ -1,4 +1,3 @@
-use crate::analyzer::SemAnalyzer;
 use crate::ast::{
   AstNode, BinaryNode, BlockStmtNode, FunctionNode, NumberNode,
   ProgramNode, VarDeclListNode, VarDeclNode, VarNode,
@@ -202,6 +201,18 @@ impl<'a> Compiler<'a> {
       },
       self.get_address(&param.name, param.scope)
     );
+  }
+
+  fn get_axdi(&self, ty: &Rc<Type>) -> (&'a str, &'a str) {
+    if ty.kind_equal(TypeLiteral::TYPE_LONG)
+      || ty.subtype.borrow().is_some()
+    {
+      // ax, di
+      ("rax", "rdi")
+    } else {
+      // ax, di
+      ("eax", "edi")
+    }
   }
 
   ///********************
@@ -508,27 +519,30 @@ impl<'a> Compiler<'a> {
       self.emit_comment("(end binary expr)");
       return;
     }
+    let ty = get_type(&node.left_node);
+    let (ax, di) = self.get_axdi(&ty);
     self.c_(&node.right_node);
     self.push_reg();
     self.c_(&node.left_node); // places left into %rax
     self.pop_reg("rdi"); // pop right into %rdi
     match node.op {
       OpType::MINUS => {
-        vprintln!(self, "  sub %rdi, %rax");
+        vprintln!(self, "  sub %{di}, %{ax}");
       }
       OpType::PLUS => {
-        vprintln!(self, "  add %rdi, %rax");
+        vprintln!(self, "  add %{di}, %{ax}");
       }
       OpType::DIV => {
-        vprintln!(self, "  cqo"); // %rdx -> %rdx:%rax
-        vprintln!(self, "  idiv %rdi");
+        // cqo => %rdx -> %rdx:%rax, cdq => %edx -> %edx:%eax
+        vprintln!(self, "{}", if ty.size == 8 { "  cqo" } else { "  cdq" });
+        vprintln!(self, "  idiv %{di}");
       }
       OpType::MUL => {
-        vprintln!(self, "  imul %rdi, %rax");
+        vprintln!(self, "  imul %{di}, %{ax}");
       }
       // relational ops
       _ => {
-        vprintln!(self, "  cmp %rdi, %rax");
+        vprintln!(self, "  cmp %{di}, %{ax}");
         match node.op {
           OpType::LEQ => {
             vprintln!(self, "  setle %al");
