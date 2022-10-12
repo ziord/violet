@@ -2,7 +2,6 @@ use crate::ast::{
   AstNode, BinaryNode, BlockStmtNode, FunctionNode, NumberNode,
   ProgramNode, VarDeclListNode, VarDeclNode, VarNode,
 };
-use crate::check::TypeCheck;
 use crate::lexer::OpType;
 use crate::parser::Parser;
 use crate::propagate::{get_type, propagate_types};
@@ -79,7 +78,6 @@ pub struct Compiler<'a> {
   arg_regs16: Vec<&'a str>,
   arg_regs32: Vec<&'a str>,
   arg_regs64: Vec<&'a str>,
-  tc: Option<TypeCheck<'a>>,
 }
 
 macro_rules! vprint {
@@ -100,6 +98,18 @@ macro_rules! vprintln {
   }
 }
 
+const I8_I32: &str = "movsbl %al, %eax";
+const I16_I32: &str = "movswl %ax, %eax";
+const I32_I64: &str = "movslq %eax, %rax";
+#[rustfmt::skip]
+const CAST_TABLE: &'static [[Option<&str>; 4]; 4] = &[
+  // i8,  i16,  i32,  i64
+  [None, None, None, Some(I32_I64)],                  // i8
+  [Some(I8_I32), None, None, Some(I32_I64)],          // i16
+  [Some(I8_I32), Some(I16_I32), None, Some(I32_I64)], // i32
+  [Some(I8_I32), Some(I16_I32), None, None],          // i64
+];
+
 impl<'a> Compiler<'a> {
   pub fn new(in_file: &'a str, out_file: &'a str) -> Self {
     Self {
@@ -115,7 +125,6 @@ impl<'a> Compiler<'a> {
       arg_regs16: vec!["di", "si", "dx", "cx", "r8w", "r9w"],
       arg_regs32: vec!["edi", "esi", "edx", "ecx", "r8d", "r9d"],
       arg_regs64: vec!["rdi", "rsi", "rdx", "rcx", "r8", "r9"],
-      tc: None,
     }
   }
 
@@ -174,15 +183,6 @@ impl<'a> Compiler<'a> {
     }
     let count = self.gen.counter;
     format!(".L.{prefix}.{count}")
-  }
-
-  fn tc(&mut self, node: &AstNode) -> Result<Rc<Type>, &str> {
-    self
-      .tc
-      .as_mut()
-      .unwrap()
-      .set_current_fn(&self.gen.current_fn.as_ref().unwrap());
-    self.tc.as_mut().unwrap().tc(node)
   }
 
   fn store_param(&mut self, param: &VarDeclNode, idx: usize) {
@@ -715,6 +715,23 @@ impl<'a> Compiler<'a> {
     self.c_number(&node);
   }
 
+  fn _cast(&mut self, from_ty: &Rc<Type>, to_ty: &Rc<Type>) {
+    if to_ty.kind_equal(TypeLiteral::TYPE_VOID) {
+      return;
+    }
+    if let Some(inst) =
+      CAST_TABLE[from_ty.get_typeid() as usize][to_ty.get_typeid() as usize]
+    {
+      vprintln!(self, "{}", inst);
+    }
+  }
+
+  fn c_cast(&mut self, node: &AstNode) {
+    let node = unbox!(CastNode, node);
+    self.c_(&node.node);
+    self._cast(&get_type(&node.node), &node.cast_ty.borrow());
+  }
+
   fn c_stmt_expr(&mut self, node: &AstNode) {
     let node = unbox!(StmtExprNode, node);
     for stmt in &node.stmts {
@@ -771,6 +788,7 @@ impl<'a> Compiler<'a> {
       AstNode::FnCallNode(_) => self.c_call(node),
       AstNode::ProgramNode(_) => self.c_prog(node),
       AstNode::SizeofNode(_) => self.c_sizeof(node),
+      AstNode::CastNode(_) => self.c_cast(node),
       AstNode::StmtExprNode(_) => self.c_stmt_expr(node),
     }
   }

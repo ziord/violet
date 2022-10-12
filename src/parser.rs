@@ -331,9 +331,10 @@ impl<'a, 'b> Parser<'a, 'b> {
     self.current_token.equal(TokenType::TYPEDEF)
   }
 
-  fn resume(&mut self, state: LexState, last_tok: Token<'a>) {
-    self.lexer.rewind(state);
-    self.current_token = last_tok;
+  fn resume(&mut self, snapshot: (LexState, Token<'a>)) {
+    // snapshot -> (state, last_token)
+    self.lexer.rewind(snapshot.0);
+    self.current_token = snapshot.1;
   }
 
   fn pause(&mut self) -> (LexState, Token<'a>) {
@@ -428,7 +429,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     } else if self.match_tok(TokenType::SIZEOF) {
       // handle "sizeof" "(" type-name ")"
       if self.current_token.equal(TokenType::LEFT_BRACKET) {
-        let (start_state, start_tok): (LexState, Token) = self.pause();
+        let snapshot: (LexState, Token) = self.pause();
         self.advance();
         if self.is_typename() {
           let line = self.current_token.line;
@@ -441,7 +442,7 @@ impl<'a, 'b> Parser<'a, 'b> {
           });
         }
         // rewind back to "(" and fallback to unary()
-        self.resume(start_state, start_tok);
+        self.resume(snapshot);
       }
       // handle "sizeof" unary
       let line = self.previous_token.line;
@@ -562,7 +563,7 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn unary(&mut self) -> AstNode {
-    // unary = ("+" | "-" | "*" | "&") unary
+    // unary = ("+" | "-" | "*" | "&") cast
     //       | postfix
     match self.current_token.t_type() {
       TokenType::PLUS
@@ -575,7 +576,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         if op == OpType::MUL {
           op = OpType::DEREF;
         }
-        let node = self.unary();
+        let node = self.cast();
         AstNode::UnaryNode(UnaryNode {
           ty: self.ty(),
           node: Box::new(node),
@@ -588,14 +589,38 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
   }
 
+  fn cast(&mut self) -> AstNode {
+    // cast = "(" type-name ")" cast | unary
+    if self.current_token.equal(TokenType::LEFT_BRACKET) {
+      let snapshot: (LexState, Token) = self.pause();
+      self.advance();
+      // current token a typename?
+      if self.is_typename() {
+        let line = self.previous_token.line;
+        let cast_ty = self.typename();
+        self.consume(TokenType::RIGHT_BRACKET);
+        let node = self.cast();
+        return AstNode::CastNode(CastNode {
+          cast_ty: RefCell::new(Rc::new(cast_ty)),
+          line,
+          node: Box::new(node),
+        });
+      } else {
+        // backtrack to "(" token
+        self.resume(snapshot);
+      }
+    }
+    self.unary()
+  }
+
   fn term(&mut self) -> AstNode {
-    // term = unary ("*" primary | "/" unary)*
-    let mut left = self.unary();
+    // term = cast ("*" primary | "/" cast)*
+    let mut left = self.cast();
     while self.match_tok(TokenType::STAR)
       || self.match_tok(TokenType::FWD_SLASH)
     {
       let op = self.previous_token.t_type().to_optype();
-      let right = self.unary();
+      let right = self.cast();
       left = AstNode::BinaryNode(BinaryNode {
         left_node: Box::new(left),
         right_node: Box::new(right),
@@ -957,14 +982,14 @@ impl<'a, 'b> Parser<'a, 'b> {
       ty = Type::pointer_to(ty);
     }
     while self.match_tok(TokenType::LEFT_BRACKET) {
-      let (start_state, start_tok): (LexState, Token) = self.pause();
+      let snapshot_1: (LexState, Token) = self.pause();
       self.abstract_declarator(Type::default());
       self.consume(TokenType::RIGHT_BRACKET);
       let (base_ty, _) = self.type_suffix(&ty);
-      let (end_state, end_tok): (LexState, Token) = self.pause();
-      self.resume(start_state, start_tok);
+      let snapshot_2: (LexState, Token) = self.pause();
+      self.resume(snapshot_1);
       let (ty, p) = self.abstract_declarator(base_ty);
-      self.resume(end_state, end_tok);
+      self.resume(snapshot_2);
       return (ty, p);
     }
     self.type_suffix(&ty)
@@ -989,10 +1014,10 @@ impl<'a, 'b> Parser<'a, 'b> {
       let (base_ty, _) = self.type_suffix(&ty);
       let (end_state, end_tok): (LexState, Token) = self.pause();
       // reset to start_state and start token, and parse the inner type "("..")"
-      self.resume(start_state, start_tok);
+      self.resume((start_state, start_tok));
       let ((ty, _), name) = self.declarator(&base_ty);
       // reset to the actual end_state after parsing the inner type
-      self.resume(end_state, end_tok);
+      self.resume((end_state, end_tok));
       return ((ty, None), name);
     }
     self.consume(TokenType::IDENT);

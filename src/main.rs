@@ -1,6 +1,4 @@
-mod analyzer;
 mod ast;
-mod check;
 mod compiler;
 mod errors;
 mod lexer;

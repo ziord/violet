@@ -1,6 +1,6 @@
 use crate::lexer::OpType;
-use crate::types::{TMember, Type};
-use std::cell::{Cell, RefCell};
+use crate::types::{CType, TMember, Type};
+use std::cell::Cell;
 use std::collections::VecDeque;
 use std::rc::Rc;
 
@@ -8,14 +8,14 @@ use std::rc::Rc;
 pub struct NumberNode {
   pub(crate) value: i64,
   pub(crate) line: i32,
-  pub(crate) ty: RefCell<Rc<Type>>,
+  pub(crate) ty: CType,
 }
 
 #[derive(Debug)]
 pub struct StringNode {
   pub(crate) value: String,
   pub(crate) line: i32,
-  pub(crate) ty: RefCell<Rc<Type>>,
+  pub(crate) ty: CType,
 }
 
 #[derive(Debug)]
@@ -23,7 +23,7 @@ pub struct BinaryNode {
   pub(crate) left_node: Box<AstNode>,
   pub(crate) right_node: Box<AstNode>,
   pub(crate) op: OpType,
-  pub(crate) ty: RefCell<Rc<Type>>,
+  pub(crate) ty: CType,
 }
 
 #[derive(Debug)]
@@ -32,7 +32,7 @@ pub struct UnaryNode {
   pub(crate) op: OpType,
   pub(crate) line: i32,
   pub(crate) member_t: Option<TMember>,
-  pub(crate) ty: RefCell<Rc<Type>>,
+  pub(crate) ty: CType,
 }
 
 #[derive(Debug)]
@@ -49,7 +49,7 @@ pub struct BlockStmtNode {
 #[derive(Debug)]
 pub struct VarNode {
   pub(crate) name: String,
-  pub(crate) ty: RefCell<Rc<Type>>,
+  pub(crate) ty: CType,
   pub(crate) scope: i32, // globals -> -1, locals > 0
   pub(crate) line: i32,
 }
@@ -59,7 +59,7 @@ pub struct AssignNode {
   pub(crate) left_node: Box<AstNode>,
   pub(crate) right_node: Box<AstNode>,
   pub(crate) op: OpType,
-  pub(crate) ty: RefCell<Rc<Type>>,
+  pub(crate) ty: CType,
 }
 
 #[derive(Debug)]
@@ -73,14 +73,14 @@ pub struct FunctionNode {
   // is function definition/prototype
   pub(crate) is_proto: bool,
   pub(crate) line: i32,
-  pub(crate) ty: RefCell<Rc<Type>>,
+  pub(crate) ty: CType,
 }
 
 #[derive(Debug)]
 pub struct ReturnNode {
   pub(crate) expr: Box<AstNode>,
   pub(crate) line: i32,
-  pub(crate) ty: RefCell<Rc<Type>>,
+  pub(crate) ty: CType,
 }
 
 #[derive(Debug)]
@@ -109,7 +109,7 @@ pub struct WhileLoopNode {
 
 #[derive(Debug)]
 pub struct VarDeclNode {
-  pub(crate) ty: RefCell<Rc<Type>>,
+  pub(crate) ty: CType,
   pub(crate) name: String,
   pub(crate) value: Option<Box<AstNode>>,
   pub(crate) scope: i32,
@@ -127,7 +127,7 @@ pub struct FnCallNode {
   pub(crate) name: String,
   pub(crate) args: Vec<AstNode>,
   pub(crate) line: i32,
-  pub(crate) ty: RefCell<Rc<Type>>,
+  pub(crate) ty: CType,
 }
 
 #[derive(Debug)]
@@ -135,19 +135,26 @@ pub struct SizeofNode {
   pub(crate) size: Cell<u32>,
   pub(crate) node: Box<AstNode>,
   pub(crate) line: i32,
-  pub(crate) ty: RefCell<Rc<Type>>,
+  pub(crate) ty: CType,
 }
 
 #[derive(Debug)]
 pub struct StmtExprNode {
   pub(crate) stmts: Vec<AstNode>,
   pub(crate) line: i32,
-  pub(crate) ty: RefCell<Rc<Type>>,
+  pub(crate) ty: CType,
 }
 
 #[derive(Debug)]
 pub struct EmptyStmtNode {
   pub(crate) line: i32,
+}
+
+#[derive(Debug)]
+pub struct CastNode {
+  pub(crate) node: Box<AstNode>,
+  pub(crate) line: i32,
+  pub(crate) cast_ty: CType,
 }
 
 #[derive(Debug)]
@@ -176,6 +183,7 @@ pub enum AstNode {
   SizeofNode(SizeofNode),
   StmtExprNode(StmtExprNode),
   EmptyNode(EmptyStmtNode),
+  CastNode(CastNode),
   ProgramNode(ProgramNode),
 }
 
@@ -243,6 +251,7 @@ impl AstNode {
       AstNode::FnCallNode(n) => Some(n.line),
       AstNode::SizeofNode(n) => Some(n.line),
       AstNode::StmtExprNode(n) => Some(n.line),
+      AstNode::CastNode(n) => Some(n.line),
       AstNode::ProgramNode(_) => None,
     }
   }

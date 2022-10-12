@@ -37,9 +37,18 @@ pub struct Type {
   pub(crate) subtype: RefCell<Option<RefCell<Rc<Type>>>>,
   pub(crate) params: Option<RefCell<Vec<TParam>>>,
   pub(crate) members: Option<RefCell<Vec<TMember>>>,
-  pub(crate) size: u32,
-  pub(crate) align: u32, // alignment
-  pub(crate) array_len: u32,
+  pub(crate) size: u32,      // size of type
+  pub(crate) align: u32,     // alignment
+  pub(crate) array_len: u32, // length of array if array type
+}
+
+pub(crate) type CType = RefCell<Rc<Type>>;
+
+pub(crate) enum TypeId {
+  I8 = 0,
+  I16,
+  I32,
+  I64,
 }
 
 impl Default for Type {
@@ -120,6 +129,15 @@ impl Type {
       }
     };
     (sz, al)
+  }
+
+  pub(crate) fn get_typeid(&self) -> TypeId {
+    match self.kind.get() {
+      TypeLiteral::TYPE_CHAR => TypeId::I8,
+      TypeLiteral::TYPE_SHORT => TypeId::I16,
+      TypeLiteral::TYPE_INT => TypeId::I32,
+      _ => TypeId::I64,
+    }
   }
 
   pub(crate) fn rc_default() -> Rc<Self> {

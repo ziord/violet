@@ -19,6 +19,12 @@ fn prop_var(node: &AstNode) -> Ty {
   unbox!(VarNode, node).ty.borrow().clone()
 }
 
+fn prop_cast(node: &AstNode) -> Ty {
+  let node = unbox!(CastNode, node);
+  prop(&node.node);
+  node.cast_ty.borrow().clone()
+}
+
 fn prop_unary(node: &AstNode) -> Ty {
   let node = unbox!(UnaryNode, node);
   if node.member_t.is_some() {
@@ -264,6 +270,7 @@ fn prop(node: &AstNode) -> Ty {
     AstNode::FnCallNode(_) => prop_call(node),
     AstNode::SizeofNode(_) => prop_sizeof(node),
     AstNode::StmtExprNode(_) => prop_stmt_expr(node),
+    AstNode::CastNode(_) => prop_cast(node),
     AstNode::ProgramNode(_) => prop_prog(node),
   }
 }
@@ -274,6 +281,7 @@ pub(crate) fn get_type(node: &AstNode) -> Ty {
     AstNode::StringNode(n) => n.ty.borrow().clone(),
     AstNode::BinaryNode(n) => n.ty.borrow().clone(),
     AstNode::UnaryNode(n) => n.ty.borrow().clone(),
+    AstNode::CastNode(n) => n.cast_ty.borrow().clone(),
     AstNode::AssignNode(n) => n.ty.borrow().clone(),
     AstNode::VarNode(n) => n.ty.borrow().clone(),
     AstNode::ReturnNode(n) => n.ty.borrow().clone(),
