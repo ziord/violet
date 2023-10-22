@@ -1,6 +1,6 @@
 #!/bin/bash
 tmp=$(mktemp -d /tmp/violet-test-XXXXXX)
-violet=../violet/target/debug/violet
+violet=../violet/target/release/violet
 trap 'rm -rf $tmp' INT TERM HUP EXIT
 echo > "$tmp"/empty.c
 

@@ -4,10 +4,10 @@ TEST_SRCS=$(wildcard tests/*.c)
 TESTS=$(TEST_SRCS:.c=)
 
 build:
-	cargo build
+	cargo build --release
 
 tests/%:
-	$(CC) -o- -E -P -C tests/$*.c | ./target/debug/violet -o tests/$*.asm -
+	$(CC) -o- -E -P -C tests/$*.c | ./target/release/violet -o tests/$*.asm -
 	$(CC) -o $@ tests/$*.asm -xc tests/common
 
 test: $(TESTS)
