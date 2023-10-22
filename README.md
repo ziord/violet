@@ -11,3 +11,6 @@ cargo build --release
 ```
 make test
 ```
+
+### License
+[MIT](https://github.com/ziord/violet/blob/master/LICENSE.txt)
