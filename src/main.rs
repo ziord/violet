@@ -1,5 +1,6 @@
 mod ast;
 mod compiler;
+mod diagnostics;
 mod errors;
 mod lexer;
 mod parser;
@@ -16,8 +17,6 @@ fn print_usage() {
 }
 
 fn parse_args() {
-  // compiler::compile_file("../violet/grammars/foo.c", "");
-  // return;
   let args: Vec<String> = env::args().collect();
   if args.len() < 2 {
     print_usage();

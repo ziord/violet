@@ -1,7 +1,8 @@
 use crate::ast::*;
+use crate::diagnostics::Diagnostic;
 use crate::errors::{ErrorInfo, ViError};
 use crate::lexer::{LexState, Lexer, OpType, Token, TokenType};
-use crate::propagate::{get_type, propagate_types};
+use crate::propagate::propagate_types;
 use crate::types::{TMember, TParam, Type, TypeLiteral};
 use crate::unbox;
 use std::borrow::BorrowMut;
@@ -34,7 +35,7 @@ struct Scope<K, V> {
 }
 
 #[derive(Debug)]
-pub(crate) struct Parser<'a, 'b> {
+pub(crate) struct Parser<'a, 'b, 'c> {
   lexer: Lexer<'a, 'b>,
   current_token: Token<'a>,
   previous_token: Token<'a>,
@@ -44,6 +45,7 @@ pub(crate) struct Parser<'a, 'b> {
   globals: Vec<(Rc<Type>, String, Option<AstNode>)>,
   current_scope: Rc<Scope<String, Rc<Type>>>,
   scope_count: i32,
+  diag: &'c mut Diagnostic,
 }
 
 impl<K, V> Scope<K, V> {
@@ -57,8 +59,8 @@ impl<K, V> Scope<K, V> {
   }
 }
 
-impl<'a, 'b> Parser<'a, 'b> {
-  pub fn new(src: &'a str) -> Self {
+impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
+  pub fn new(src: &'a str, diag: &'c mut Diagnostic) -> Self {
     Self {
       lexer: Lexer::new(src),
       current_token: Token::default(),
@@ -67,6 +69,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       current_scope: Rc::new(Scope::new()),
       scope_count: 1,
       globals: vec![],
+      diag,
     }
   }
 
@@ -492,9 +495,14 @@ impl<'a, 'b> Parser<'a, 'b> {
     self.error(Some(ViError::EP006.to_info()));
   }
 
-  fn member_access(&self, node: AstNode, name: &str, line: i32) -> AstNode {
-    propagate_types(&node);
-    let ty = get_type(&node);
+  fn member_access(
+    &mut self,
+    mut node: AstNode,
+    name: &str,
+    line: i32,
+  ) -> AstNode {
+    propagate_types(&mut node, &mut self.diag);
+    let ty = node.get_type();
     if ty.kind.get() != TypeLiteral::TYPE_STRUCT
       && ty.kind.get() != TypeLiteral::TYPE_UNION
     {
@@ -524,11 +532,10 @@ impl<'a, 'b> Parser<'a, 'b> {
           op: OpType::DEREF,
           member_t: None,
           node: Box::new(AstNode::BinaryNode(BinaryNode {
-            left_node: Box::new(node),
-            right_node: Box::new(index),
+            left: Box::new(node),
+            right: Box::new(index),
             op: OpType::PLUS,
             ty: self.ty(),
-            // line,
           })),
           ty: self.ty(),
           line,
@@ -622,8 +629,8 @@ impl<'a, 'b> Parser<'a, 'b> {
       let op = self.previous_token.t_type().to_optype();
       let right = self.cast();
       left = AstNode::BinaryNode(BinaryNode {
-        left_node: Box::new(left),
-        right_node: Box::new(right),
+        left: Box::new(left),
+        right: Box::new(right),
         ty: self.ty(),
         op,
       });
@@ -640,8 +647,8 @@ impl<'a, 'b> Parser<'a, 'b> {
       let op = self.previous_token.t_type().to_optype();
       let right = self.term();
       left = AstNode::BinaryNode(BinaryNode {
-        left_node: Box::new(left),
-        right_node: Box::new(right),
+        left: Box::new(left),
+        right: Box::new(right),
         ty: self.ty(),
         op,
       });
@@ -662,8 +669,8 @@ impl<'a, 'b> Parser<'a, 'b> {
           let op = self.previous_token.t_type().to_optype();
           let right = self.relational();
           left = AstNode::BinaryNode(BinaryNode {
-            left_node: Box::new(left),
-            right_node: Box::new(right),
+            left: Box::new(left),
+            right: Box::new(right),
             ty: self.ty(),
             op,
           });
@@ -683,8 +690,8 @@ impl<'a, 'b> Parser<'a, 'b> {
       let op = self.previous_token.t_type().to_optype();
       let right = self.relational();
       left = AstNode::BinaryNode(BinaryNode {
-        left_node: Box::new(left),
-        right_node: Box::new(right),
+        left: Box::new(left),
+        right: Box::new(right),
         ty: self.ty(),
         op,
       });
@@ -699,8 +706,8 @@ impl<'a, 'b> Parser<'a, 'b> {
       let op = self.previous_token.t_type().to_optype();
       let right = self.assign();
       return AstNode::AssignNode(AssignNode {
-        left_node: Box::new(left),
-        right_node: Box::new(right),
+        left: Box::new(left),
+        right: Box::new(right),
         ty: self.ty(),
         op,
       });
@@ -713,8 +720,8 @@ impl<'a, 'b> Parser<'a, 'b> {
     let node = self.assign();
     if self.match_tok(TokenType::COMMA) {
       return AstNode::BinaryNode(BinaryNode {
-        left_node: Box::new(node),
-        right_node: Box::new(self.expr()),
+        left: Box::new(node),
+        right: Box::new(self.expr()),
         ty: self.ty(),
         op: OpType::COMMA,
       });

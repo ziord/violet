@@ -1,14 +1,17 @@
 use crate::ast::{
-  AstNode, BinaryNode, BlockStmtNode, FunctionNode, NumberNode,
-  ProgramNode, VarDeclListNode, VarDeclNode, VarNode,
+  AssignNode, AstNode, BinaryNode, BlockStmtNode, CastNode, ExprStmtNode,
+  FnCallNode, ForLoopNode, FunctionNode, IfElseNode, NumberNode,
+  ProgramNode, ReturnNode, SizeofNode, StmtExprNode, StringNode,
+  VarDeclListNode, VarDeclNode, VarNode, WhileLoopNode,
 };
+use crate::diagnostics::Diagnostic;
 use crate::lexer::OpType;
 use crate::parser::Parser;
-use crate::propagate::{get_type, propagate_types};
+use crate::propagate::propagate_types;
 use crate::types::{Type, TypeLiteral};
 use crate::unbox;
 use crate::util;
-use std::borrow::Borrow;
+use std::borrow::{Borrow, BorrowMut};
 use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
@@ -73,6 +76,7 @@ pub struct Compiler<'a> {
   in_path: &'a str,
   out_file: Box<dyn io::Write>,
   depth: i32,
+  diag: Diagnostic,
   gen: GenState,
   arg_regs8: Vec<&'a str>,
   arg_regs16: Vec<&'a str>,
@@ -121,6 +125,7 @@ impl<'a> Compiler<'a> {
       },
       depth: 0,
       gen: GenState::default(),
+      diag: Diagnostic::new(),
       arg_regs8: vec!["dil", "sil", "dl", "cl", "r8b", "r9b"],
       arg_regs16: vec!["di", "si", "dx", "cx", "r8w", "r9w"],
       arg_regs32: vec!["edi", "esi", "edx", "ecx", "r8d", "r9d"],
@@ -128,7 +133,7 @@ impl<'a> Compiler<'a> {
     }
   }
 
-  fn setup(&self) -> Result<AstNode, &'a str> {
+  fn setup(&mut self) -> Result<AstNode, &'a str> {
     let content = if self.in_path == V_STDIN {
       util::read_stdin()
     } else {
@@ -136,7 +141,7 @@ impl<'a> Compiler<'a> {
     };
     if content.is_ok() {
       let content = content.unwrap();
-      let mut parser = Parser::new(&content);
+      let mut parser = Parser::new(&content, &mut self.diag);
       return Ok(parser.parse());
     }
     Err("An error occurred while reading file.")
@@ -291,8 +296,8 @@ impl<'a> Compiler<'a> {
       }
       AstNode::BinaryNode(n) => {
         if n.op == OpType::COMMA {
-          self.c_(&n.left_node);
-          self.emit_address(&n.right_node);
+          self.c_(&n.left);
+          self.emit_address(&n.right);
         } else {
           panic!(
             "Unsupported optype for binary node emit_address: {:#?}",
@@ -338,12 +343,18 @@ impl<'a> Compiler<'a> {
       | TypeLiteral::TYPE_UNION => return,
       _ => {}
     };
+    // - [[chibicc]]
+    // When we load a char or a short value to a register, we always
+    // extend them to the size of int, so we can assume the lower half of
+    // a register always contains a valid value. The upper half of a
+    // register for char, short and int may contain garbage. When we load
+    // a long value to a register, it simply occupies the entire register.
     if ty.size == 1 {
-      // load a value at %rax in memory, and sign-extend it to 64 bits
-      // storing it in %rax
-      vprintln!(self, "  movsbq (%rax), %rax");
+      // load a value at (%rax) in memory, and sign-extend it to 32 bits
+      // storing it in %eax - lower half or %rax
+      vprintln!(self, "  movsbl (%rax), %eax");
     } else if ty.size == 2 {
-      vprintln!(self, " movswq (%rax), %rax");
+      vprintln!(self, " movswl (%rax), %eax");
     } else if ty.size == 4 {
       vprintln!(self, " movslq (%rax), %rax");
     } else {
@@ -400,13 +411,11 @@ impl<'a> Compiler<'a> {
   ///***********************
   ///* Compilation routines
   ///***********************
-  fn c_number(&mut self, node: &AstNode) {
-    let node = unbox!(NumberNode, node);
+  fn c_number(&mut self, node: &NumberNode) {
     vprintln!(self, "  mov ${}, %rax", node.value);
   }
 
-  fn c_str(&mut self, node: &AstNode) {
-    let node = unbox!(StringNode, node);
+  fn c_str(&mut self, node: &StringNode) {
     for ch in node.value.as_bytes() {
       vprintln!(self, "  .byte {}", ch);
     }
@@ -418,25 +427,17 @@ impl<'a> Compiler<'a> {
     self.emit_load(unbox!(VarNode, node).ty.borrow().as_ref());
   }
 
-  fn _c_assign(
-    &mut self,
-    left_node: &AstNode,
-    right_node: &AstNode,
-    op: &OpType,
-  ) {
-    // todo: use op
+  fn _c_assign(&mut self, left: &AstNode, right: &AstNode, _op: &OpType) {
     self.emit_comment("(begin assignment)");
-    self.emit_address(left_node);
+    self.emit_address(left);
     self.push_reg();
-    self.c_(right_node);
-    let ty = get_type(left_node);
-    self.emit_store(&ty);
+    self.c_(right);
+    self.emit_store(&left.get_type());
     self.emit_comment("(end assignment)");
   }
 
-  fn c_assign(&mut self, node: &AstNode) {
-    let node = unbox!(AssignNode, node);
-    self._c_assign(&node.left_node, &node.right_node, &node.op);
+  fn c_assign(&mut self, node: &AssignNode) {
+    self._c_assign(&node.left, &node.right, &node.op);
   }
 
   fn c_ptr_binary(
@@ -449,15 +450,14 @@ impl<'a> Compiler<'a> {
     let right: &AstNode;
     let _ty;
     if left_ty.subtype.borrow().is_some() {
-      left = &node.left_node;
-      right = &node.right_node;
+      left = &node.left;
+      right = &node.right;
       _ty = left_ty;
     } else {
-      left = &node.right_node;
-      right = &node.left_node;
+      left = &node.right;
+      right = &node.left;
       _ty = right_ty;
     }
-    // 'unwrap()' because semantic analysis guarantees
     let ptr_size = _ty
       .subtype
       .borrow()
@@ -499,13 +499,12 @@ impl<'a> Compiler<'a> {
     }
   }
 
-  fn c_binary(&mut self, node: &AstNode) {
+  fn c_binary(&mut self, node: &BinaryNode) {
     self.emit_comment("(begin binary expr)");
-    let node = unbox!(BinaryNode, node);
     if node.op == OpType::PLUS || node.op == OpType::MINUS {
       // type-check, if any of the operand is a pointer, use c_ptr_binary
-      let left_ty = get_type(&node.left_node);
-      let right_ty = get_type(&node.right_node);
+      let left_ty = node.left.get_type();
+      let right_ty = node.right.get_type();
       if left_ty.subtype.borrow().is_some() && right_ty.is_integer()
         || left_ty.is_integer() && right_ty.subtype.borrow().is_some()
         || left_ty.subtype.borrow().is_some()
@@ -514,16 +513,16 @@ impl<'a> Compiler<'a> {
         return self.c_ptr_binary(node, &left_ty, &right_ty);
       }
     } else if node.op == OpType::COMMA {
-      self.c_(&node.left_node);
-      self.c_(&node.right_node);
+      self.c_(&node.left);
+      self.c_(&node.right);
       self.emit_comment("(end binary expr)");
       return;
     }
-    let ty = get_type(&node.left_node);
+    let ty = node.left.get_type();
     let (ax, di) = self.get_axdi(&ty);
-    self.c_(&node.right_node);
+    self.c_(&node.right);
     self.push_reg();
-    self.c_(&node.left_node); // places left into %rax
+    self.c_(&node.left); // places left into %rax
     self.pop_reg("rdi"); // pop right into %rdi
     match node.op {
       OpType::MINUS => {
@@ -566,7 +565,7 @@ impl<'a> Compiler<'a> {
             panic!("Unrecognized operator '{}'", node.op);
           }
         }
-        // move value in %al and zero-extend to a byte.
+        // copy value in %al to %rax and zero-extend.
         vprintln!(self, "  movzb %al, %rax");
       }
     }
@@ -601,16 +600,15 @@ impl<'a> Compiler<'a> {
     }
   }
 
-  fn c_return(&mut self, node: &AstNode) {
-    let node = unbox!(ReturnNode, node);
+  fn c_return(&mut self, node: &ReturnNode) {
     self.c_(&node.expr);
     // emit a jmp to the return site
     // .L.return currently in prologue
     self.emit_jmp(&format!(".L.return._{}", self.gen.current_fn()));
   }
 
-  fn c_expr_stmt(&mut self, node: &AstNode) {
-    self.c_(&unbox!(ExprStmtNode, node).node);
+  fn c_expr_stmt(&mut self, node: &ExprStmtNode) {
+    self.c_(&node.node);
   }
 
   fn c_stmt_list(&mut self, stmt_list: &BlockStmtNode) {
@@ -619,8 +617,7 @@ impl<'a> Compiler<'a> {
     }
   }
 
-  fn c_if_else(&mut self, node: &AstNode) {
-    let node = unbox!(IfElseNode, node);
+  fn c_if_else(&mut self, node: &IfElseNode) {
     self.c_(&node.condition);
     // cmp $0, %rax
     // je else_label
@@ -636,8 +633,7 @@ impl<'a> Compiler<'a> {
     self.emit_label(&end_label);
   }
 
-  fn c_for_loop(&mut self, node: &AstNode) {
-    let node = unbox!(ForLoopNode, node);
+  fn c_for_loop(&mut self, node: &ForLoopNode) {
     self.c_(&node.init);
     let cond_label = self.create_label("for_cond", true);
     let end_label = self.create_label("for_end", false);
@@ -654,8 +650,7 @@ impl<'a> Compiler<'a> {
     self.emit_label(&end_label); // end of loop
   }
 
-  fn c_while_loop(&mut self, node: &AstNode) {
-    let node = unbox!(WhileLoopNode, node);
+  fn c_while_loop(&mut self, node: &WhileLoopNode) {
     let cond_label = self.create_label("while_cond", true);
     let end_label = self.create_label("while_end", false);
     self.emit_label(&cond_label);
@@ -690,8 +685,7 @@ impl<'a> Compiler<'a> {
     }
   }
 
-  fn c_call(&mut self, node: &AstNode) {
-    let node = unbox!(FnCallNode, node);
+  fn c_call(&mut self, node: &FnCallNode) {
     for arg in &node.args {
       self.c_(arg);
       self.push_reg();
@@ -705,13 +699,12 @@ impl<'a> Compiler<'a> {
     vprintln!(self, "  call _{}", node.name);
   }
 
-  fn c_sizeof(&mut self, node: &AstNode) {
-    let node = unbox!(SizeofNode, node);
-    let node = AstNode::NumberNode(NumberNode {
+  fn c_sizeof(&mut self, node: &SizeofNode) {
+    let node = NumberNode {
       value: node.size.get() as i64,
       ty: RefCell::new(node.ty.borrow().clone()),
       line: node.line,
-    });
+    };
     self.c_number(&node);
   }
 
@@ -726,26 +719,23 @@ impl<'a> Compiler<'a> {
     }
   }
 
-  fn c_cast(&mut self, node: &AstNode) {
-    let node = unbox!(CastNode, node);
+  fn c_cast(&mut self, node: &CastNode) {
     self.c_(&node.node);
-    self._cast(&get_type(&node.node), &node.cast_ty.borrow());
+    self._cast(&node.node.get_type(), &node.cast_ty.borrow());
   }
 
-  fn c_stmt_expr(&mut self, node: &AstNode) {
-    let node = unbox!(StmtExprNode, node);
+  fn c_stmt_expr(&mut self, node: &StmtExprNode) {
     for stmt in &node.stmts {
       self.c_(stmt);
     }
   }
 
-  fn c_function(&mut self, node: &AstNode) {
-    let mut func = unbox!(FunctionNode, node);
+  fn c_function(&mut self, func: &FunctionNode) {
     if func.is_proto {
       return;
     }
     self.gen.set_current_fn(&func.name);
-    self.store_lvar_offsets(&mut func);
+    self.store_lvar_offsets(func);
     self.emit_prologue(func);
     // params
     for i in 0..func.params.len() {
@@ -757,8 +747,7 @@ impl<'a> Compiler<'a> {
     self.emit_epilogue();
   }
 
-  fn c_prog(&mut self, node: &AstNode) {
-    let node = unbox!(ProgramNode, node);
+  fn c_prog(&mut self, node: &ProgramNode) {
     self.emit_data(node);
     self.emit_text(node);
   }
@@ -769,27 +758,27 @@ impl<'a> Compiler<'a> {
     }
 
     match node {
-      AstNode::NumberNode(_) => self.c_number(node),
-      AstNode::StringNode(_) => self.c_str(node),
+      AstNode::NumberNode(n) => self.c_number(n),
+      AstNode::StringNode(n) => self.c_str(n),
       AstNode::EmptyNode(_) => {}
-      AstNode::BinaryNode(_) => self.c_binary(node),
+      AstNode::BinaryNode(n) => self.c_binary(n),
       AstNode::UnaryNode(_) => self.c_unary(node),
-      AstNode::ExprStmtNode(_) => self.c_expr_stmt(node),
-      AstNode::FunctionNode(_) => self.c_function(node),
-      AstNode::AssignNode(_) => self.c_assign(node),
+      AstNode::ExprStmtNode(n) => self.c_expr_stmt(n),
+      AstNode::FunctionNode(n) => self.c_function(n),
+      AstNode::AssignNode(n) => self.c_assign(n),
       AstNode::VarNode(_) => self.c_var(node),
-      AstNode::ReturnNode(_) => self.c_return(node),
+      AstNode::ReturnNode(n) => self.c_return(n),
       AstNode::BlockStmtNode(n) => self.c_stmt_list(n),
-      AstNode::IfElseNode(_) => self.c_if_else(node),
-      AstNode::ForLoopNode(_) => self.c_for_loop(node),
-      AstNode::WhileLoopNode(_) => self.c_while_loop(node),
+      AstNode::IfElseNode(n) => self.c_if_else(n),
+      AstNode::ForLoopNode(n) => self.c_for_loop(n),
+      AstNode::WhileLoopNode(n) => self.c_while_loop(n),
       AstNode::VarDeclNode(n) => self.c_var_decl(n),
       AstNode::VarDeclListNode(n) => self.c_var_decl_list(n),
-      AstNode::FnCallNode(_) => self.c_call(node),
-      AstNode::ProgramNode(_) => self.c_prog(node),
-      AstNode::SizeofNode(_) => self.c_sizeof(node),
-      AstNode::CastNode(_) => self.c_cast(node),
-      AstNode::StmtExprNode(_) => self.c_stmt_expr(node),
+      AstNode::FnCallNode(n) => self.c_call(n),
+      AstNode::ProgramNode(n) => self.c_prog(n),
+      AstNode::SizeofNode(n) => self.c_sizeof(n),
+      AstNode::CastNode(n) => self.c_cast(n),
+      AstNode::StmtExprNode(n) => self.c_stmt_expr(n),
     }
   }
 
@@ -799,8 +788,11 @@ impl<'a> Compiler<'a> {
     if res.is_err() {
       return Err(res.unwrap_err());
     }
-    let root = res.unwrap();
-    propagate_types(&root);
+    let mut root = res.unwrap();
+    propagate_types(root.borrow_mut(), &mut self.diag);
+    if self.diag.has_error() {
+      return Err("compile error");
+    }
     vprintln!(self, ".file 1 \"{}\"", self.in_path);
     self.c_(&root);
     Ok(0)
@@ -812,5 +804,6 @@ pub(crate) fn compile_file(in_file: &str, out_file: &str) {
   let res = cmp.compile();
   if let Err(_v) = res {
     eprintln!("{}", _v);
+    cmp.diag.show_error();
   }
 }

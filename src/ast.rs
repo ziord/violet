@@ -1,3 +1,4 @@
+use crate::ast::AstNode::EmptyNode;
 use crate::lexer::OpType;
 use crate::types::{CType, TMember, Type};
 use std::cell::Cell;
@@ -20,8 +21,8 @@ pub struct StringNode {
 
 #[derive(Debug)]
 pub struct BinaryNode {
-  pub(crate) left_node: Box<AstNode>,
-  pub(crate) right_node: Box<AstNode>,
+  pub(crate) left: Box<AstNode>,
+  pub(crate) right: Box<AstNode>,
   pub(crate) op: OpType,
   pub(crate) ty: CType,
 }
@@ -56,12 +57,13 @@ pub struct VarNode {
 
 #[derive(Debug)]
 pub struct AssignNode {
-  pub(crate) left_node: Box<AstNode>,
-  pub(crate) right_node: Box<AstNode>,
+  pub(crate) left: Box<AstNode>,
+  pub(crate) right: Box<AstNode>,
   pub(crate) op: OpType,
   pub(crate) ty: CType,
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct FunctionNode {
   pub(crate) name: String,
@@ -202,14 +204,13 @@ macro_rules! unbox {
   };
 }
 
-impl AstNode {
-  pub(crate) fn is_function(&self) -> bool {
-    match self {
-      AstNode::FunctionNode(_) => true,
-      _ => false,
-    }
+impl Default for AstNode {
+  fn default() -> Self {
+    EmptyNode(EmptyStmtNode { line: -1 })
   }
+}
 
+impl AstNode {
   pub(crate) fn is_var_decl(&self) -> bool {
     match self {
       AstNode::VarDeclNode(_) => true,
@@ -225,7 +226,7 @@ impl AstNode {
   }
 
   pub(crate) fn get_line(&self) -> Option<i32> {
-    match self {
+    let line = match self {
       AstNode::NumberNode(n) => Some(n.line),
       AstNode::StringNode(n) => Some(n.line),
       AstNode::EmptyNode(n) => Some(n.line),
@@ -253,6 +254,38 @@ impl AstNode {
       AstNode::StmtExprNode(n) => Some(n.line),
       AstNode::CastNode(n) => Some(n.line),
       AstNode::ProgramNode(_) => None,
+    };
+    if let Some(l) = line {
+      if l > 0 {
+        return line;
+      }
+    }
+    return None;
+  }
+
+  pub(crate) fn get_type(&self) -> Rc<Type> {
+    match self {
+      AstNode::NumberNode(n) => n.ty.borrow().clone(),
+      AstNode::StringNode(n) => n.ty.borrow().clone(),
+      AstNode::BinaryNode(n) => n.ty.borrow().clone(),
+      AstNode::UnaryNode(n) => n.ty.borrow().clone(),
+      AstNode::CastNode(n) => n.cast_ty.borrow().clone(),
+      AstNode::AssignNode(n) => n.ty.borrow().clone(),
+      AstNode::VarNode(n) => n.ty.borrow().clone(),
+      AstNode::ReturnNode(n) => n.ty.borrow().clone(),
+      AstNode::VarDeclNode(n) => n.ty.borrow().clone(),
+      AstNode::FnCallNode(n) => n.ty.borrow().clone(),
+      AstNode::SizeofNode(n) => n.ty.borrow().clone(),
+      AstNode::StmtExprNode(n) => n.ty.borrow().clone(),
+      AstNode::ExprStmtNode(_)
+      | AstNode::FunctionNode(_)
+      | AstNode::BlockStmtNode(_)
+      | AstNode::IfElseNode(_)
+      | AstNode::ForLoopNode(_)
+      | AstNode::WhileLoopNode(_)
+      | AstNode::VarDeclListNode(_)
+      | AstNode::EmptyNode(_)
+      | AstNode::ProgramNode(_) => Type::rc_default(),
     }
   }
 }

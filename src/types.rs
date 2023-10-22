@@ -167,6 +167,25 @@ impl Type {
     other
   }
 
+  pub(crate) fn get_common_type(ty_1: &Rc<Self>, ty_2: &Rc<Self>) -> Self {
+    if ty_1.subtype.borrow().is_some() {
+      return Self::pointer_to(
+        ty_1
+          .subtype
+          .borrow()
+          .as_ref()
+          .unwrap()
+          .borrow()
+          .clone()
+          .into(),
+      );
+    }
+    if ty_1.size == 8 || ty_2.size == 8 {
+      return Type::new(TypeLiteral::TYPE_LONG);
+    }
+    Type::new(TypeLiteral::TYPE_INT)
+  }
+
   pub(crate) fn is_integer(&self) -> bool {
     match self.kind.get() {
       TypeLiteral::TYPE_INT

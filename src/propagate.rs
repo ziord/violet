@@ -1,306 +1,319 @@
-use crate::ast::{AstNode, BinaryNode, BlockStmtNode, VarDeclNode};
+use crate::ast::{
+  AssignNode, AstNode, BinaryNode, BlockStmtNode, CastNode, ExprStmtNode,
+  FnCallNode, ForLoopNode, FunctionNode, IfElseNode, NumberNode,
+  ProgramNode, ReturnNode, SizeofNode, StmtExprNode, UnaryNode,
+  VarDeclListNode, VarDeclNode, WhileLoopNode,
+};
+use crate::diagnostics::Diagnostic;
 use crate::lexer::OpType;
 use crate::types::{Type, TypeLiteral};
-use crate::{unbox, verror};
+use crate::verror;
+use std::cell::RefCell;
 use std::rc::Rc;
 
 type Ty = Rc<Type>;
 
-// todo: better error reporting
-fn prop_num(node: &AstNode) -> Ty {
-  unbox!(NumberNode, node).ty.borrow().clone()
+pub struct Propagate<'a> {
+  diag: &'a mut Diagnostic,
 }
 
-fn prop_str(node: &AstNode) -> Ty {
-  unbox!(StringNode, node).ty.borrow().clone()
-}
-
-fn prop_var(node: &AstNode) -> Ty {
-  unbox!(VarNode, node).ty.borrow().clone()
-}
-
-fn prop_cast(node: &AstNode) -> Ty {
-  let node = unbox!(CastNode, node);
-  prop(&node.node);
-  node.cast_ty.borrow().clone()
-}
-
-fn prop_unary(node: &AstNode) -> Ty {
-  let node = unbox!(UnaryNode, node);
-  if node.member_t.is_some() {
-    // struct member access, type is set at parse time.
-    return node.ty.borrow().clone();
+impl<'a> Propagate<'a> {
+  pub fn new(diag: &'a mut Diagnostic) -> Self {
+    Self { diag }
   }
-  let ty = prop(&node.node);
-  // propagate
-  match node.op {
-    OpType::PLUS | OpType::MINUS => {
-      if ty.is_integer() {
-        node.ty.replace(ty.clone());
-        return ty;
-      }
-    }
-    OpType::ADDR => {
-      return {
-        if ty.kind_equal(TypeLiteral::TYPE_ARRAY) {
-          node.ty.replace(Rc::new(Type::pointer_to(
-            ty.subtype
-              .borrow()
-              .as_ref()
-              .unwrap()
-              .borrow()
-              .clone()
-              .into(),
-          )));
-        } else {
-          node.ty.replace(Rc::new(Type::pointer_to(ty.into())));
-        }
-        node.ty.borrow().clone()
-      }
-    }
-    OpType::DEREF => {
-      let tmp = ty.subtype.borrow();
-      if tmp.is_some() {
-        // ensure pointer to void isn't being de-referenced.
-        if !tmp
-          .as_ref()
-          .unwrap()
-          .borrow()
-          .kind_equal(TypeLiteral::TYPE_VOID)
-        {
-          node.ty.replace(tmp.clone().unwrap().into_inner());
-          return node.ty.borrow().clone();
-        }
-        verror!("Invalid target for dereference: attempt to dereference a void pointer");
-      } else {
-        verror!("Invalid target for dereference");
-      }
-    }
-    _ => verror!("unknown unary operator '{:?}'", &node.op),
-  }
-  verror!("Type mismatch - for unary operation: {:#?}", node);
-}
 
-fn binary_ty(node: &BinaryNode, left_ty: Ty, right_ty: Ty) -> Ty {
-  match node.op {
-    OpType::PLUS | OpType::MINUS => {
-      if left_ty.is_integer() {
-        // int, int
-        if right_ty.is_integer() {
-          return Type::promote_ty(left_ty, right_ty);
+  fn new_cast(&self, node: AstNode, ty: Type, line: i32) -> AstNode {
+    AstNode::CastNode(CastNode {
+      node: Box::new(node),
+      cast_ty: RefCell::new(Rc::new(ty)),
+      line,
+    })
+  }
+
+  pub(crate) fn usual_arith_conv(
+    &self,
+    l_node: &mut AstNode,
+    r_node: &mut AstNode,
+  ) {
+    let ty = Type::get_common_type(&l_node.get_type(), &r_node.get_type());
+    let l_line = l_node.get_line().unwrap_or(-1);
+    let r_line = r_node.get_line().unwrap_or(-1);
+    *l_node = self.new_cast(std::mem::take(l_node), ty.clone(), l_line);
+    *r_node = self.new_cast(std::mem::take(r_node), ty, r_line);
+  }
+
+  // todo: better error reporting
+  fn prop_num(&mut self, node: &NumberNode) {
+    if node.value > i32::MAX as i64 || node.value < i32::MIN as i64 {
+      node.ty.replace(Rc::new(Type::new(TypeLiteral::TYPE_LONG)));
+    }
+  }
+
+  fn prop_cast(&mut self, node: &mut CastNode) {
+    self.prop(&mut node.node);
+  }
+
+  fn prop_unary(&mut self, node: &mut UnaryNode) {
+    if node.member_t.is_some() {
+      // struct member access, type is set at parse time.
+      return;
+    }
+    self.prop(&mut node.node);
+    let ty = node.node.get_type();
+    // propagate
+    match node.op {
+      OpType::PLUS | OpType::MINUS => {
+        if ty.is_integer() {
+          let new_ty = Type::get_common_type(
+            &Rc::new(Type::new(TypeLiteral::TYPE_INT)),
+            &ty,
+          );
+          node.node = Box::new(self.new_cast(
+            std::mem::take(&mut *node.node),
+            new_ty.clone(),
+            node.line,
+          ));
+          node.ty.replace(Rc::new(new_ty));
+          return;
         }
-        // int, ptr/array/function
-        else if right_ty.subtype.borrow().is_some() {
-          if node.op != OpType::MINUS {
-            // int - ptr -> err
-            return right_ty;
+      }
+      OpType::ADDR => {
+        return {
+          if ty.kind_equal(TypeLiteral::TYPE_ARRAY) {
+            node.ty.replace(Rc::new(Type::pointer_to(
+              ty.subtype
+                .borrow()
+                .as_ref()
+                .unwrap()
+                .borrow()
+                .clone()
+                .into(),
+            )));
+          } else {
+            node.ty.replace(Rc::new(Type::pointer_to(ty.into())));
           }
         }
-      } else if left_ty.subtype.borrow().is_some() {
-        // ptr/array/function, int
-        if right_ty.is_integer() {
+      }
+      OpType::DEREF => {
+        let tmp = ty.subtype.borrow();
+        if tmp.is_some() {
+          // ensure pointer to void isn't being de-referenced.
+          if !tmp
+            .as_ref()
+            .unwrap()
+            .borrow()
+            .kind_equal(TypeLiteral::TYPE_VOID)
+          {
+            node.ty.replace(tmp.clone().unwrap().into_inner());
+            return;
+          }
+          verror!("Invalid target for dereference: attempt to dereference a void pointer");
+        } else {
+          verror!("Invalid target for dereference");
+        }
+      }
+      _ => verror!("unknown unary operator '{:?}'", &node.op),
+    }
+    verror!("Type mismatch - for unary operation");
+  }
+
+  fn binary_ty(
+    &mut self,
+    node: &BinaryNode,
+    left_ty: Ty,
+    right_ty: Ty,
+  ) -> Ty {
+    match node.op {
+      OpType::PLUS | OpType::MINUS => {
+        if left_ty.is_integer() {
+          // int, int
+          if right_ty.is_integer() {
+            return Type::promote_ty(left_ty, right_ty);
+          }
+          // int, ptr/array/function
+          else if right_ty.subtype.borrow().is_some() {
+            if node.op != OpType::MINUS {
+              // int - ptr -> err
+              return right_ty;
+            }
+          }
+        } else if left_ty.subtype.borrow().is_some() {
+          // ptr/array/function, int
+          if right_ty.is_integer() {
+            return left_ty;
+          }
+          // ptr, ptr
+          else if right_ty.kind_equal(TypeLiteral::TYPE_PTR) {
+            return Rc::new(Type::new(TypeLiteral::TYPE_INT));
+          }
+        }
+      }
+      OpType::DIV => {
+        // int, int
+        if left_ty.is_integer() && right_ty.is_integer() {
           return left_ty;
         }
-        // ptr, ptr
-        else if right_ty.kind_equal(TypeLiteral::TYPE_PTR) {
-          return Rc::new(Type::new(TypeLiteral::TYPE_INT));
+      }
+      OpType::MUL => {
+        // int, int
+        if left_ty.is_integer() && right_ty.is_integer() {
+          return left_ty;
         }
       }
-    }
-    OpType::DIV => {
-      // int, int
-      if left_ty.is_integer() && right_ty.is_integer() {
-        return left_ty;
+      OpType::LEQ
+      | OpType::GEQ
+      | OpType::LT
+      | OpType::GT
+      | OpType::EQQ
+      | OpType::NEQ => {
+        if left_ty.equals(&right_ty) {
+          return left_ty;
+        }
+      }
+      OpType::COMMA => return right_ty,
+      _ => unreachable!(),
+    };
+    Type::rc_default()
+  }
+
+  fn prop_binary(&mut self, node: &mut BinaryNode) {
+    self.prop(&mut node.left);
+    self.prop(&mut node.right);
+    if node.op != OpType::COMMA {
+      if node.left.get_type().is_integer()
+        && node.right.get_type().is_integer()
+      {
+        self.usual_arith_conv(&mut node.left, &mut node.right);
       }
     }
-    OpType::MUL => {
-      // int, int
-      if left_ty.is_integer() && right_ty.is_integer() {
-        return left_ty;
-      }
+    let ty =
+      self.binary_ty(node, node.left.get_type(), node.right.get_type());
+    node.ty.replace(ty);
+  }
+
+  fn prop_expr_stmt(&mut self, node: &mut ExprStmtNode) {
+    self.prop(&mut node.node);
+  }
+
+  fn prop_function(&mut self, node: &mut FunctionNode) {
+    self.prop_block(&mut node.body);
+  }
+
+  fn prop_assign(&mut self, node: &mut AssignNode) {
+    self.prop(&mut node.left);
+    self.prop(&mut node.right);
+    let ty = node.left.get_type();
+    let line = node.left.get_line().unwrap_or(-1);
+    if ty.kind_equal(TypeLiteral::TYPE_ARRAY) {
+      self
+        .diag
+        .add(String::from("assignment to non-lvalue"), line);
     }
-    OpType::LEQ
-    | OpType::GEQ
-    | OpType::LT
-    | OpType::GT
-    | OpType::EQQ
-    | OpType::NEQ => {
-      if left_ty.equals(&right_ty) {
-        return left_ty;
-      }
+    if !ty.kind_equal(TypeLiteral::TYPE_STRUCT) {
+      node.right = Box::new(self.new_cast(
+        std::mem::take(&mut *node.right),
+        ty.clone().into(),
+        line,
+      ));
     }
-    OpType::COMMA => return right_ty,
-    _ => unreachable!(),
-  };
-  Type::rc_default()
-}
-
-fn prop_binary(node: &AstNode) -> Ty {
-  let node = unbox!(BinaryNode, node);
-  let left_ty = prop(&node.left_node);
-  let right_ty = prop(&node.right_node);
-  let ty = binary_ty(node, left_ty, right_ty);
-  node.ty.replace(ty.clone());
-  ty
-}
-
-fn prop_expr_stmt(node: &AstNode) -> Ty {
-  let node = unbox!(ExprStmtNode, node);
-  prop(&node.node);
-  Type::rc_default()
-}
-
-fn prop_function(node: &AstNode) -> Ty {
-  let node = unbox!(FunctionNode, node);
-  prop_block(&node.body);
-  Type::rc_default()
-}
-
-fn prop_assign(node: &AstNode) -> Ty {
-  let node = unbox!(AssignNode, node);
-  let ty = prop(&node.left_node);
-  prop(&node.right_node);
-  node.ty.replace(ty.clone());
-  ty
-}
-
-fn prop_return(node: &AstNode) -> Ty {
-  let node = unbox!(ReturnNode, node);
-  let ty = prop(&node.expr);
-  node.ty.replace(ty.clone());
-  ty
-}
-
-fn prop_block(node: &BlockStmtNode) -> Ty {
-  for n in &node.stmts {
-    prop(n);
+    node.ty.replace(ty);
   }
-  Type::rc_default()
-}
 
-fn prop_if_else(node: &AstNode) -> Ty {
-  let node = unbox!(IfElseNode, node);
-  prop(&node.if_block);
-  prop(&node.else_block)
-}
-
-fn prop_for_loop(node: &AstNode) -> Ty {
-  let node = unbox!(ForLoopNode, node);
-  prop(&node.init);
-  prop(&node.condition);
-  prop(&node.incr);
-  prop(&node.body)
-}
-
-fn prop_while_loop(node: &AstNode) -> Ty {
-  let node = unbox!(WhileLoopNode, node);
-  prop(&node.condition);
-  prop(&node.body)
-}
-
-fn prop_var_decl(node: &VarDeclNode) -> Ty {
-  if let Some(v) = &node.value {
-    prop(v);
+  fn prop_return(&mut self, node: &mut ReturnNode) {
+    self.prop(&mut node.expr);
+    node.ty.replace(node.expr.get_type());
   }
-  Type::rc_default()
-}
 
-fn prop_var_decl_list(node: &AstNode) -> Ty {
-  let node = unbox!(VarDeclListNode, node);
-  for n in &node.decls {
-    prop_var_decl(n);
+  fn prop_block(&mut self, node: &mut BlockStmtNode) {
+    for n in &mut node.stmts {
+      self.prop(n);
+    }
   }
-  Type::rc_default()
-}
 
-fn prop_sizeof(node: &AstNode) -> Ty {
-  let node = unbox!(SizeofNode, node);
-  let ty = prop(&node.node);
-  node.size.set(ty.size);
-  let ty = Rc::new(Type::new(TypeLiteral::TYPE_INT));
-  node.ty.replace(ty.clone());
-  ty
-}
-
-fn prop_stmt_expr(node: &AstNode) -> Ty {
-  let node = unbox!(StmtExprNode, node);
-  let mut ty = Type::rc_default();
-  for n in &node.stmts {
-    ty = prop(n);
+  fn prop_if_else(&mut self, node: &mut IfElseNode) {
+    self.prop(&mut node.if_block);
+    self.prop(&mut node.else_block)
   }
-  node.ty.replace(ty.clone());
-  ty
-}
 
-fn prop_call(node: &AstNode) -> Ty {
-  let node = unbox!(FnCallNode, node);
-  for arg in &node.args {
-    prop(arg);
+  fn prop_for_loop(&mut self, node: &mut ForLoopNode) {
+    self.prop(&mut node.init);
+    self.prop(&mut node.condition);
+    self.prop(&mut node.incr);
+    self.prop(&mut node.body)
   }
-  // todo: actually use the function definition's return type
-  Rc::new(Type::new(TypeLiteral::TYPE_INT))
-}
 
-fn prop_prog(node: &AstNode) -> Ty {
-  let node = unbox!(ProgramNode, node);
-  for decl in &node.decls {
-    prop(decl);
+  fn prop_while_loop(&mut self, node: &mut WhileLoopNode) {
+    self.prop(&mut node.condition);
+    self.prop(&mut node.body)
   }
-  Type::rc_default()
-}
 
-fn prop(node: &AstNode) -> Ty {
-  match node {
-    AstNode::NumberNode(_) => prop_num(node),
-    AstNode::StringNode(_) => prop_str(node),
-    AstNode::EmptyNode(_) => Type::rc_default(),
-    AstNode::BinaryNode(_) => prop_binary(node),
-    AstNode::UnaryNode(_) => prop_unary(node),
-    AstNode::ExprStmtNode(_) => prop_expr_stmt(node),
-    AstNode::FunctionNode(_) => prop_function(node),
-    AstNode::AssignNode(_) => prop_assign(node),
-    AstNode::VarNode(_) => prop_var(node),
-    AstNode::ReturnNode(_) => prop_return(node),
-    AstNode::BlockStmtNode(n) => prop_block(n),
-    AstNode::IfElseNode(_) => prop_if_else(node),
-    AstNode::ForLoopNode(_) => prop_for_loop(node),
-    AstNode::WhileLoopNode(_) => prop_while_loop(node),
-    AstNode::VarDeclNode(n) => prop_var_decl(n),
-    AstNode::VarDeclListNode(_) => prop_var_decl_list(node),
-    AstNode::FnCallNode(_) => prop_call(node),
-    AstNode::SizeofNode(_) => prop_sizeof(node),
-    AstNode::StmtExprNode(_) => prop_stmt_expr(node),
-    AstNode::CastNode(_) => prop_cast(node),
-    AstNode::ProgramNode(_) => prop_prog(node),
+  fn prop_var_decl(&mut self, node: &mut VarDeclNode) {
+    if let Some(v) = &mut node.value {
+      self.prop(v);
+    }
+  }
+
+  fn prop_var_decl_list(&mut self, node: &mut VarDeclListNode) {
+    for n in &mut node.decls {
+      self.prop_var_decl(n);
+    }
+  }
+
+  fn prop_sizeof(&mut self, node: &mut SizeofNode) {
+    self.prop(&mut node.node);
+    node.size.set(node.node.get_type().size);
+    node.ty.replace(Rc::new(Type::new(TypeLiteral::TYPE_INT)));
+  }
+
+  fn prop_stmt_expr(&mut self, node: &mut StmtExprNode) {
+    let mut ty = Type::rc_default();
+    for n in &mut node.stmts {
+      self.prop(n);
+      ty = n.get_type();
+    }
+    node.ty.replace(ty);
+  }
+
+  fn prop_call(&mut self, node: &mut FnCallNode) {
+    for arg in &mut node.args {
+      self.prop(arg);
+    }
+    // todo: actually use the function definition's return type
+    node.ty = RefCell::new(Rc::new(Type::new(TypeLiteral::TYPE_LONG)));
+  }
+
+  fn prop_prog(&mut self, node: &mut ProgramNode) {
+    for decl in &mut node.decls {
+      self.prop(decl);
+    }
+  }
+
+  fn prop(&mut self, node: &mut AstNode) {
+    match node {
+      AstNode::NumberNode(n) => self.prop_num(n),
+      AstNode::BinaryNode(n) => self.prop_binary(n),
+      AstNode::UnaryNode(n) => self.prop_unary(n),
+      AstNode::ExprStmtNode(n) => self.prop_expr_stmt(n),
+      AstNode::FunctionNode(n) => self.prop_function(n),
+      AstNode::AssignNode(n) => self.prop_assign(n),
+      AstNode::ReturnNode(n) => self.prop_return(n),
+      AstNode::BlockStmtNode(n) => self.prop_block(n),
+      AstNode::IfElseNode(n) => self.prop_if_else(n),
+      AstNode::ForLoopNode(n) => self.prop_for_loop(n),
+      AstNode::WhileLoopNode(n) => self.prop_while_loop(n),
+      AstNode::VarDeclNode(n) => self.prop_var_decl(n),
+      AstNode::VarDeclListNode(n) => self.prop_var_decl_list(n),
+      AstNode::FnCallNode(n) => self.prop_call(n),
+      AstNode::SizeofNode(n) => self.prop_sizeof(n),
+      AstNode::StmtExprNode(n) => self.prop_stmt_expr(n),
+      AstNode::CastNode(n) => self.prop_cast(n),
+      AstNode::ProgramNode(n) => self.prop_prog(n),
+      _ => {}
+    }
   }
 }
 
-pub(crate) fn get_type(node: &AstNode) -> Ty {
-  match node {
-    AstNode::NumberNode(n) => n.ty.borrow().clone(),
-    AstNode::StringNode(n) => n.ty.borrow().clone(),
-    AstNode::BinaryNode(n) => n.ty.borrow().clone(),
-    AstNode::UnaryNode(n) => n.ty.borrow().clone(),
-    AstNode::CastNode(n) => n.cast_ty.borrow().clone(),
-    AstNode::AssignNode(n) => n.ty.borrow().clone(),
-    AstNode::VarNode(n) => n.ty.borrow().clone(),
-    AstNode::ReturnNode(n) => n.ty.borrow().clone(),
-    AstNode::VarDeclNode(n) => n.ty.borrow().clone(),
-    AstNode::FnCallNode(n) => n.ty.borrow().clone(),
-    AstNode::SizeofNode(n) => n.ty.borrow().clone(),
-    AstNode::StmtExprNode(n) => n.ty.borrow().clone(),
-    AstNode::ExprStmtNode(_)
-    | AstNode::FunctionNode(_)
-    | AstNode::BlockStmtNode(_)
-    | AstNode::IfElseNode(_)
-    | AstNode::ForLoopNode(_)
-    | AstNode::WhileLoopNode(_)
-    | AstNode::VarDeclListNode(_)
-    | AstNode::EmptyNode(_)
-    | AstNode::ProgramNode(_) => Type::rc_default(),
-  }
-}
-
-pub(crate) fn propagate_types(node: &AstNode) {
-  prop(node);
+pub(crate) fn propagate_types(node: &mut AstNode, diag: &mut Diagnostic) {
+  let mut prp = Propagate::new(diag);
+  prp.prop(node);
 }
